@@ -8,7 +8,8 @@ and TLS echo destinations, and isolated operator rule files. It verifies:
 - a forbidden alias even when the workload treats it as resolving to the allowed address;
 - IP literals and source IPs absent from the projected rule;
 - strict bounded rule/config parsing;
-- live removal, invalid snapshots, readiness recovery, capacity and audit-before-forwarding;
+- live removal, projected-volume symlink replacement, invalid snapshots and readiness recovery;
+- setup deadlines, capacity and audit-before-forwarding;
 - the existing transport and developer-tunnel suite for regressions.
 
 Run the repository proof natively:

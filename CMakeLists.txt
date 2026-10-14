@@ -162,6 +162,8 @@ foreach(ZETTA_TUNNEL_EGRESS_CASE
     source_binding
     reload
     invalid_reload
+    projected_reload
+    setup_timeout
     capacity
     audit_failure)
   add_test(NAME egress_${ZETTA_TUNNEL_EGRESS_CASE}

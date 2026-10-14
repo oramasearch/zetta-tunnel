@@ -3,6 +3,7 @@
 import contextlib
 import http.client
 import json
+import os
 from pathlib import Path
 import socket
 import socketserver
@@ -302,6 +303,38 @@ def invalid_reload(test):
     eventually(lambda: test.health("/readyz") == 200)
 
 
+def projected_reload(test):
+    if os.name == "nt":
+        print("projected volume symlink test requires POSIX")
+        return
+    original = test.directory / "snapshot1"
+    original.write_text((test.directory / "rules.json").read_text())
+    (test.directory / "rules.json").unlink()
+    (test.directory / "rules.json").symlink_to(original.name)
+    test.start()
+    connection, payload = test.explicit(payload=b"live")
+    with connection:
+        assert receive(connection, len(payload)) == payload
+        (test.directory / "snapshot2").write_text('{"rules":[]}')
+        link = test.directory / "next-link"
+        link.symlink_to("snapshot2")
+        link.replace(test.directory / "rules.json")
+        assert closed(connection)
+
+
+def setup_timeout(test):
+    test.start(max_sessions="1")
+    with test.connection() as stalled:
+        stalled.settimeout(12)
+        stalled.sendall(b"\x16")
+        assert test.health("/healthz") == 200
+        assert closed(stalled)
+    eventually(lambda: any(record["reason"] == "setup_timeout" for record in test.records()))
+    connection, payload = test.explicit(payload=b"after timeout")
+    with connection:
+        assert receive(connection, len(payload)) == payload
+
+
 def capacity(test):
     test.start(max_sessions="2")
     with contextlib.ExitStack() as stack:
@@ -333,6 +366,8 @@ CASES = {
     "source_binding": source_binding,
     "reload": reload,
     "invalid_reload": invalid_reload,
+    "projected_reload": projected_reload,
+    "setup_timeout": setup_timeout,
     "capacity": capacity,
     "audit_failure": audit_failure,
 }
