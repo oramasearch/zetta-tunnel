@@ -1,0 +1,22 @@
+# zetta-tunnel
+
+Orama's own tunnel, in C++26. Read [`README.md`](README.md) first: it says what this is, why it
+exists, and that nothing is built until the design in
+[orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided.
+
+The organisation's rules are in the umbrella bridge's `CLAUDE.md`
+(https://github.com/oramasearch/orama-bridge). The ones that apply here every day:
+
+- **Branches:** work branches from `origin/dev`, and every pull request targets `dev`
+  (`gh pr create --base dev`). `main` moves only on a release. Merge with merge commits, never
+  squash.
+- **Private:** this repository and its Docker Hub repository `oramasearch/zetta-tunnel` are
+  private. Never make either public.
+- **Licences:** every dependency is permissively licensed (Apache-2.0, MIT, BSD, ISC, Boost) and
+  recorded where it is added. No GPL, LGPL, AGPL, SSPL, BUSL or source-available code is linked or
+  shipped.
+- **No CI.** Proof is the local build and `ctest`, stated in the pull request.
+- **No AI attribution** in commits, pull requests or release notes.
+- **Never write the word "seam"**; name the mechanism.
+- **The version** is written once, in `project(VERSION)` in `CMakeLists.txt`; `--version` and its
+  test read it from there.
