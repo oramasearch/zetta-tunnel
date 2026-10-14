@@ -36,6 +36,39 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 configure_file(src/version.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/zetta_tunnel/version.hpp @ONLY)
 
+set(BOOST_CAPY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BOOST_CAPY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BOOST_CAPY_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+add_subdirectory(modules/capy EXCLUDE_FROM_ALL)
+
+if(APPLE)
+  list(APPEND CMAKE_PREFIX_PATH /opt/homebrew/opt/openssl@3)
+endif()
+find_package(OpenSSL 3 REQUIRED)
+set(BOOST_COROSIO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BOOST_COROSIO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BOOST_COROSIO_BUILD_PERF OFF CACHE BOOL "" FORCE)
+add_subdirectory(modules/corosio EXCLUDE_FROM_ALL)
+
+add_library(zetta_tunnel_transport src/transport.cpp)
+add_library(zetta-tunnel::transport ALIAS zetta_tunnel_transport)
+target_include_directories(zetta_tunnel_transport
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(zetta_tunnel_transport
+  PRIVATE
+    Boost::capy
+    Boost::corosio
+    Boost::corosio_openssl
+)
+target_compile_options(zetta_tunnel_transport PRIVATE -Wall -Wextra -Wpedantic -Werror)
+set_target_properties(zetta_tunnel_transport PROPERTIES
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN YES
+)
+
 add_executable(zetta-tunnel src/main.cpp)
 target_include_directories(zetta-tunnel PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_compile_options(zetta-tunnel PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -46,3 +79,27 @@ set_tests_properties(version_reports_project_version PROPERTIES
   PASS_REGULAR_EXPRESSION "^zetta-tunnel ${PROJECT_VERSION}\n$")
 add_test(NAME unknown_argument_fails COMMAND zetta-tunnel --no-such-flag)
 set_tests_properties(unknown_argument_fails PROPERTIES WILL_FAIL TRUE)
+
+add_executable(transport_test tests/transport_test.cpp)
+target_link_libraries(transport_test
+  PRIVATE
+    zetta_tunnel_transport
+    Boost::capy
+    Boost::corosio
+    Boost::corosio_openssl
+    OpenSSL::Crypto
+)
+target_compile_options(transport_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+foreach(ZETTA_TUNNEL_TRANSPORT_CASE
+    exchange
+    no_certificate
+    other_ca
+    expired_certificate
+    wrong_identity)
+  add_test(
+    NAME transport_${ZETTA_TUNNEL_TRANSPORT_CASE}
+    COMMAND transport_test ${ZETTA_TUNNEL_TRANSPORT_CASE}
+  )
+  set_tests_properties(transport_${ZETTA_TUNNEL_TRANSPORT_CASE} PROPERTIES TIMEOUT 20)
+endforeach()

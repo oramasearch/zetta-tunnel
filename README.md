@@ -15,11 +15,12 @@ other providers, where their terms allow.
 
 ## Status
 
-**Nothing is built yet.** The binary only reports its version. The design comes first, in the
-operator's secure-networking epic
+**The transport is built.** `zetta_tunnel_transport` provides mutual TLS 1.3 client/server
+connections, pinned peer identities, binary frames and clean TLS shutdown. Tunnels, gateways, the
+mesh and ingress remain unbuilt. The decided design is in the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
-([lake#724](https://github.com/oramasearch/lake/issues/724)). Private repository; proprietary to
-Orama.
+([lake#724](https://github.com/oramasearch/lake/issues/724)). See
+[`docs/transport.md`](docs/transport.md). Private repository; proprietary to Orama.
 
 ## Why it exists
 
@@ -77,6 +78,9 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ./build/zetta-tunnel --version
 ```
+
+The build produces the `zetta_tunnel_transport` library. Set `BUILD_SHARED_LIBS=ON` for a shared
+library; the public header is [`include/zetta_tunnel/transport.hpp`](include/zetta_tunnel/transport.hpp).
 
 ## Where it sits
 
