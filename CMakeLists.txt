@@ -52,6 +52,9 @@ add_subdirectory(modules/corosio EXCLUDE_FROM_ALL)
 
 add_library(zetta_tunnel_transport src/transport.cpp)
 add_library(zetta-tunnel::transport ALIAS zetta_tunnel_transport)
+if(NOT BUILD_SHARED_LIBS)
+  target_compile_definitions(zetta_tunnel_transport PUBLIC ZETTA_TUNNEL_TRANSPORT_STATIC)
+endif()
 target_include_directories(zetta_tunnel_transport
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
