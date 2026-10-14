@@ -54,6 +54,10 @@ Identity issue(const std::filesystem::path &directory, const std::string &name, 
   extension(cert, issuer, NID_basic_constraints, ca ? "critical,CA:FALSE" : "critical,CA:TRUE");
   extension(cert, issuer, NID_key_usage,
             ca ? "critical,digitalSignature" : "critical,keyCertSign,cRLSign");
+  extension(cert, issuer, NID_subject_key_identifier, "hash");
+  if (ca) {
+    extension(cert, issuer, NID_authority_key_identifier, "keyid:always");
+  }
   if (ca) {
     extension(cert, issuer, NID_ext_key_usage, "serverAuth,clientAuth");
     extension(cert, issuer, NID_subject_alt_name, san);
@@ -99,6 +103,11 @@ int main(int argc, char **argv) {
     issue(directory, "peer-a", &workload_ca, "DNS:peer-a.test");
     issue(directory, "peer-b", &workload_ca, "DNS:peer-b.test");
     issue(directory, "wrong-peer", &workload_ca, "DNS:wrong-peer.test");
+    for (const auto *host : {"lake", "apps", "dashboard", "engine", "zetta", "backend"}) {
+      issue(directory, host, &server_ca, "DNS:" + std::string(host) + ".test");
+    }
+    issue(directory, "lake-rotated", &server_ca, "DNS:lake.test");
+    issue(directory, "lake-expired", &server_ca, "DNS:lake.test", -60);
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

@@ -320,14 +320,16 @@ Options parse_options(std::span<char *> args) {
 }
 
 void print_help(std::ostream &output) {
-  output << "usage: zetta-tunnel client|relay|endpoint|egress|peer [flags]\n"
-         << "all: --cert FILE --key FILE --ca FILE [--listen IP:PORT] [--max-sessions 128]\n"
+  output << "usage: zetta-tunnel client|relay|endpoint|egress|peer|ingress [flags]\n"
+         << "client/relay/endpoint: --cert FILE --key FILE --ca FILE [--listen IP:PORT] "
+            "[--max-sessions 128]\n"
          << "client: --relay HOST:PORT [--server-name DNS_OR_IP]\n"
          << "relay: --grants FILE --endpoint-cert FILE --endpoint-key FILE --endpoint-ca FILE\n"
          << "endpoint: --target HOST:PORT --peer-name DNS_OR_IP\n"
          << "relay/endpoint: [--health-listen IP:PORT] [--audit FILE|-]\n"
          << "egress: see zetta-tunnel egress --help and docs/egress.md\n"
          << "peer: see zetta-tunnel peer --help and docs/peer.md\n"
+         << "ingress: see zetta-tunnel ingress --help and docs/ingress.md\n"
          << "See docs/tunnel.md for identity, grant, and audit contracts.\n";
 }
 

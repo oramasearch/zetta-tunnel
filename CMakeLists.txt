@@ -74,9 +74,16 @@ set_target_properties(zetta_tunnel_transport PROPERTIES
 
 add_executable(zetta-tunnel src/main.cpp)
 find_package(nlohmann_json 3.12 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2>=1.61)
 add_library(zetta_tunnel_roles STATIC
   src/egress.cpp
   src/egress_config.cpp
+  src/ingress.cpp
+  src/ingress_config.cpp
+  src/ingress_h2.cpp
+  src/ingress_http.cpp
+  src/ingress_tls.cpp
   src/peer.cpp
   src/peer_config.cpp
   src/tunnel.cpp
@@ -89,6 +96,7 @@ target_link_libraries(zetta_tunnel_roles PUBLIC
   Boost::corosio
   OpenSSL::SSL
   nlohmann_json::nlohmann_json
+  PkgConfig::NGHTTP2
 )
 target_include_directories(zetta_tunnel_roles PUBLIC src)
 target_compile_options(zetta_tunnel_roles PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -143,6 +151,20 @@ foreach(ZETTA_TUNNEL_CASE
   set_tests_properties(tunnel_${ZETTA_TUNNEL_CASE} PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 endforeach()
 set_tests_properties(tunnel_postgres PROPERTIES SKIP_RETURN_CODE 77)
+
+add_executable(ingress_http_test tests/ingress_http_test.cpp)
+target_link_libraries(ingress_http_test PRIVATE zetta_tunnel_roles)
+target_compile_options(ingress_http_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME ingress_http_validation COMMAND ingress_http_test)
+foreach(ZETTA_TUNNEL_INGRESS_CASE
+    hosts routing tls body_limit streaming websocket http2 h2_streaming h2_reset upstream_tls
+    reload certificate_reload config_validation capacity timeout headers keepalive audit_failure
+    h2_limits h2_backpressure h2_upload_flow projected_reload early_response slow_headers upstream_framing)
+  add_test(NAME ingress_${ZETTA_TUNNEL_INGRESS_CASE}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/ingress_integration.py
+      $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates> ${ZETTA_TUNNEL_INGRESS_CASE})
+  set_tests_properties(ingress_${ZETTA_TUNNEL_INGRESS_CASE} PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+endforeach()
 
 add_executable(tunnel_config_test tests/tunnel_config_test.cpp)
 target_link_libraries(tunnel_config_test PRIVATE zetta_tunnel_roles)
