@@ -86,6 +86,8 @@ add_library(zetta_tunnel_roles STATIC
   src/ingress_http.cpp
   src/ingress_tls.cpp
   src/mesh_config.cpp
+  src/mesh_diagnostics.cpp
+  src/mesh_netlink.cpp
   src/peer.cpp
   src/peer_config.cpp
   src/tunnel.cpp
@@ -113,11 +115,15 @@ target_include_directories(zetta-tunnel PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gene
 target_compile_options(zetta-tunnel PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 enable_testing()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME version_reports_project_version COMMAND zetta-tunnel --version)
 set_tests_properties(version_reports_project_version PROPERTIES
   PASS_REGULAR_EXPRESSION "^zetta-tunnel ${PROJECT_VERSION}\n$")
 add_test(NAME unknown_argument_fails COMMAND zetta-tunnel --no-such-flag)
 set_tests_properties(unknown_argument_fails PROPERTIES WILL_FAIL TRUE)
+add_test(NAME image_contract
+  COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/image_contract.py
+    $<TARGET_FILE:zetta-tunnel> ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_VERSION})
 
 add_executable(transport_test tests/transport_test.cpp)
 target_link_libraries(transport_test
@@ -143,7 +149,6 @@ foreach(ZETTA_TUNNEL_TRANSPORT_CASE
   set_tests_properties(transport_${ZETTA_TUNNEL_TRANSPORT_CASE} PROPERTIES TIMEOUT 20)
 endforeach()
 
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_executable(tunnel_certificates tests/tunnel_certificates.cpp)
 target_link_libraries(tunnel_certificates PRIVATE OpenSSL::Crypto)
 target_compile_options(tunnel_certificates PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -193,6 +198,10 @@ add_executable(mesh_config_test tests/mesh_config_test.cpp)
 target_link_libraries(mesh_config_test PRIVATE zetta_tunnel_roles)
 target_compile_options(mesh_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME mesh_config_validation COMMAND mesh_config_test)
+add_executable(mesh_netlink_test tests/mesh_netlink_test.cpp)
+target_link_libraries(mesh_netlink_test PRIVATE zetta_tunnel_roles)
+target_compile_options(mesh_netlink_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME mesh_netlink_wire COMMAND mesh_netlink_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/mesh)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME mesh_linux_fail_closed
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/mesh_linux_integration.py

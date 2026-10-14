@@ -19,6 +19,11 @@
   lifecycle, probes, metrics and operator projection.
 - [Mesh verification](mesh/testing.md): portable validation and the privileged Linux namespace
   acceptance command.
+- [Mesh netlink and diagnostics](mesh/netlink.md): transaction wire fixtures, acknowledgement
+  validation and safe startup failure details.
+- [Image and releases](image.md): the private amd64 image, cluster BuildKit workflow, Linux image
+  proof and digest-based release contract.
+- [Releases](releases/README.md): release-page index and conventions.
 - [Transport](transport.md): the mutual TLS 1.3 client/server interface, framed stream and security
   behavior.
 - [Licences](licences.md): licences for every dependency linked by zetta-tunnel.
@@ -27,5 +32,6 @@ The secure-networking design and the Lake/operator desired-state contract live i
 repository's `docs/infrastructure/secure-networking.md`. This repository implements decisions D3
 and D5-D8; developer tunnels implement issue #3, DNS-name egress implements issue #4, peer gateways
 implement issue #5, the ingress data plane implements issue #6 and the mesh node agent implements
-issue #7. Ingress and mesh cluster proofs are coordinated through orama-operator#473 and #474.
+issue #7. The image and release workflow implement issue #8. Ingress and mesh cluster proofs are
+coordinated through orama-operator#473 and #474.
 Workspace Zetta audit delivery is deferred to zetta#1281.

@@ -3,6 +3,7 @@
 #include "zetta_tunnel/transport.hpp"
 
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <ostream>
 #include <span>
@@ -49,6 +50,7 @@ struct Options {
 Configuration read_configuration(const std::filesystem::path &path);
 Options parse_options(std::span<char *> args);
 void print_help(std::ostream &output);
+std::string failure_detail(const std::exception &error);
 int run(const Options &options);
 
 } // namespace zetta_tunnel::mesh

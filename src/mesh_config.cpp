@@ -8,10 +8,12 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cerrno>
 #include <charconv>
 #include <fstream>
 #include <map>
 #include <set>
+#include <system_error>
 
 namespace zetta_tunnel::mesh {
 namespace {
@@ -133,15 +135,22 @@ Workload workload(const std::filesystem::path &base, const nlohmann::json &value
 
 Configuration read_configuration(const std::filesystem::path &file) {
   constexpr std::size_t file_limit = 1024 * 1024;
+  errno = 0;
   std::ifstream input(file, std::ios::binary);
   if (!input) {
-    invalid("mesh configuration unavailable");
+    throw std::system_error(errno != 0 ? errno : EIO, std::generic_category(),
+                            "open mesh projection");
   }
   std::string data(file_limit + 1, '\0');
+  errno = 0;
   input.read(data.data(), static_cast<std::streamsize>(data.size()));
   data.resize(static_cast<std::size_t>(input.gcount()));
-  if (input.bad() || data.size() > file_limit) {
-    invalid("mesh configuration exceeds limit or read failed");
+  if (input.bad()) {
+    throw std::system_error(errno != 0 ? errno : EIO, std::generic_category(),
+                            "read mesh projection");
+  }
+  if (data.size() > file_limit) {
+    invalid("mesh configuration exceeds limit");
   }
   std::vector<std::set<std::string>> keys;
   auto callback = [&keys](int depth, nlohmann::json::parse_event_t event, nlohmann::json &value) {
