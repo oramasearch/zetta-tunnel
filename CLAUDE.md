@@ -1,8 +1,9 @@
 # zetta-tunnel
 
-Orama's own network layer, in C++26: tunnels, the mesh and the ingress. Read [`README.md`](README.md) first: it says what this is, why it
-exists, and that nothing is built until the design in
-[orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided.
+Orama's own network layer, in C++26: tunnels, the mesh and the ingress. Read [`README.md`](README.md)
+first: it says what this is, why it exists, and which parts are built. The design in
+[orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided; the
+mutual TLS transport is the first implemented part.
 
 The organisation's rules are in the umbrella bridge's `CLAUDE.md`
 (https://github.com/oramasearch/orama-bridge). The ones that apply here every day:
