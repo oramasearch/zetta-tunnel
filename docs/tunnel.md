@@ -141,7 +141,8 @@ Metrics are not implemented; audit records supply per-session byte counts.
 
 ## AuditSink and JSON lines
 
-`AuditSink::write(const AuditRecord&)` is the writer interface in `src/tunnel.hpp`.
+`AuditSink::write(const AuditRecord&)` is the tunnel writer interface in `src/tunnel.hpp`; the
+overload for egress decisions uses the same sink.
 The current `JsonLinesSink` appends one JSON object per line and flushes each record. The relay
 is authoritative for grant/workspace identity. The endpoint also records transport sessions,
 with empty grant/workspace fields because it authenticates the relay's workload identity. The

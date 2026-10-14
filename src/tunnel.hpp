@@ -45,10 +45,24 @@ struct AuditRecord {
   Time started_at{};
 };
 
+struct EgressDecision {
+  std::string decision;
+  std::string reason;
+  std::string rule_id;
+  std::string workspace;
+  std::string source;
+  std::string dns_name;
+  std::string protocol;
+  std::string resolved_address;
+  std::uint16_t port = 0;
+  Time started_at{};
+};
+
 class AuditSink {
 public:
   virtual ~AuditSink() = default;
   virtual void write(const AuditRecord &record) = 0;
+  virtual void write(const EgressDecision &record) = 0;
 };
 
 std::unique_ptr<AuditSink> json_lines_sink(const std::string &path);
