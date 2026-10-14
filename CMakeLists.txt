@@ -39,6 +39,9 @@ configure_file(src/version.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/zetta_tu
 set(BOOST_CAPY_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BOOST_CAPY_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BOOST_CAPY_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+# Capy and Corosio are linked into zetta-tunnel statically; `make install` installs zetta-tunnel only,
+# never their libraries, headers or CMake packages.
+set(CMAKE_SKIP_INSTALL_RULES ON)
 add_subdirectory(modules/capy EXCLUDE_FROM_ALL)
 
 if(APPLE)
@@ -50,6 +53,7 @@ set(BOOST_COROSIO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BOOST_COROSIO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BOOST_COROSIO_BUILD_PERF OFF CACHE BOOL "" FORCE)
 add_subdirectory(modules/corosio EXCLUDE_FROM_ALL)
+set(CMAKE_SKIP_INSTALL_RULES OFF)
 
 add_library(zetta_tunnel_transport src/transport.cpp)
 add_library(zetta-tunnel::transport ALIAS zetta_tunnel_transport)
@@ -74,6 +78,8 @@ set_target_properties(zetta_tunnel_transport PROPERTIES
 )
 
 add_executable(zetta-tunnel src/main.cpp)
+include(GNUInstallDirs)
+install(TARGETS zetta-tunnel RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 find_package(nlohmann_json 3.12 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2>=1.61)

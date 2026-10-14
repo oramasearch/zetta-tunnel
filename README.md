@@ -102,6 +102,17 @@ ctest --test-dir build --output-on-failure
 ./build/zetta-tunnel --version
 ```
 
+Install the binary on your `PATH` (it is the only file installed; Capy and Corosio are linked in
+statically and install nothing):
+
+```sh
+sudo cmake --install build            # /usr/local/bin/zetta-tunnel
+cmake --install build --prefix ~/.local  # or ~/.local/bin/zetta-tunnel, without sudo
+```
+
+Build out of the source tree, as above: a build inside it leaves CMake's files in the checkout and its
+submodules.
+
 Release images are built without a local container engine on the cluster BuildKit lane. See
 [Image and releases](docs/image.md).
 
