@@ -25,7 +25,7 @@ endif()
 
 project(zetta-tunnel
   VERSION 0.0.1
-  DESCRIPTION "Orama's own tunnels: developer access to services, apps and deployments"
+  DESCRIPTION "Orama's own tunnels, mesh and ingress network layer"
   LANGUAGES CXX
 )
 
@@ -45,6 +45,7 @@ if(APPLE)
   list(APPEND CMAKE_PREFIX_PATH /opt/homebrew/opt/openssl@3)
 endif()
 find_package(OpenSSL 3 REQUIRED)
+find_package(Threads REQUIRED)
 set(BOOST_COROSIO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BOOST_COROSIO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BOOST_COROSIO_BUILD_PERF OFF CACHE BOOL "" FORCE)
@@ -84,17 +85,24 @@ add_library(zetta_tunnel_roles STATIC
   src/ingress_h2.cpp
   src/ingress_http.cpp
   src/ingress_tls.cpp
+  src/mesh_config.cpp
   src/peer.cpp
   src/peer_config.cpp
   src/tunnel.cpp
   src/tunnel_config.cpp
   src/tunnel_io.cpp
 )
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_sources(zetta_tunnel_roles PRIVATE src/mesh_linux.cpp)
+else()
+  target_sources(zetta_tunnel_roles PRIVATE src/mesh_stub.cpp)
+endif()
 target_link_libraries(zetta_tunnel_roles PUBLIC
   zetta_tunnel_transport
   Boost::capy
   Boost::corosio
   OpenSSL::SSL
+  Threads::Threads
   nlohmann_json::nlohmann_json
   PkgConfig::NGHTTP2
 )
@@ -180,6 +188,20 @@ add_executable(peer_config_test tests/peer_config_test.cpp)
 target_link_libraries(peer_config_test PRIVATE zetta_tunnel_roles)
 target_compile_options(peer_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME peer_config_validation COMMAND peer_config_test)
+
+add_executable(mesh_config_test tests/mesh_config_test.cpp)
+target_link_libraries(mesh_config_test PRIVATE zetta_tunnel_roles)
+target_compile_options(mesh_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME mesh_config_validation COMMAND mesh_config_test)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_test(NAME mesh_linux_fail_closed
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/mesh_linux_integration.py
+      $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates>)
+  set_tests_properties(mesh_linux_fail_closed PROPERTIES
+    TIMEOUT 90
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77)
+endif()
 
 foreach(ZETTA_TUNNEL_EGRESS_CASE
     allowed
