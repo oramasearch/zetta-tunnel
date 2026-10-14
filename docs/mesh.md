@@ -15,9 +15,9 @@ the destination agent authenticates the source workload certificate and authoriz
 for the requested application port. Cilium remains the cluster policy enforcer and permits the
 agent-to-agent port only for declared `Connection`s.
 
-The role is Linux-only. Configuration parsing, flags and the non-capture roles continue to build
-on macOS and Windows. The Linux implementation talks directly to the kernel nftables netlink API;
-it does not invoke or ship an nftables or iptables executable.
+The role is Linux-only. Configuration parsing, flags, netlink wire tests and the non-capture roles
+continue to build on macOS and Windows. The Linux implementation talks directly to the kernel
+nftables netlink API; it does not invoke or ship an nftables or iptables executable.
 
 ## Enrolment and fail-closed order
 
@@ -169,3 +169,19 @@ Workspace Zetta delivery remains dependent on zetta#1281. Until that contract la
 collects JSON lines without claiming durable delivery.
 
 See [verification](mesh/testing.md) for portable and privileged Linux proofs.
+
+## Startup and reload diagnostics
+
+A refused projection emits one bounded stderr line with its stage and a zero-based workload index
+where applicable. Stages distinguish projection reading/validation, workload TLS validation,
+namespace capture, each listener address, listener threads and projection metadata. Namespace and
+socket failures include the operation, numeric errno and its message. Kernel capture failures name
+the table, chain or rule operation and include the netlink error, sequence/type and any extended
+kernel error text or attribute offset. TLS loading reports the failed setting and OpenSSL/errno
+codes without certificate, key, file contents or OpenSSL error-data strings.
+
+Malformed JSON reports only its error ID and byte position, never the input snippet. Filesystem
+errors omit configured paths. Control characters are replaced and diagnostic detail is bounded.
+Readiness remains 503, listeners and sessions close, and installed capture stays in place on any
+reload failure. Startup failures before the probe listener opens exit with status 2 and a diagnostic.
+See [netlink and diagnostics](mesh/netlink.md) for examples, wire contracts and troubleshooting.

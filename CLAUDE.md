@@ -5,7 +5,9 @@ first: it says what this is, why it exists, and which parts are built. The desig
 [orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided; the
 mutual TLS transport, developer tunnel roles, DNS-name egress, peer and ingress gateways, and the
 fail-closed mesh node agent are implemented. The private amd64 image and release workflow are
-implemented; publication and the Linux image proof await coordinator verification. The issue #3
+implemented; the coordinator published `oramasearch/zetta-tunnel:dev-e522b9a`. Its Linux mesh proof
+failed at capture readiness; netlink corrections and startup diagnostics await the coordinator's
+rerun. The issue #3
 contract is in
 [`docs/tunnel.md`](docs/tunnel.md), issue #4 is in
 [`docs/egress.md`](docs/egress.md), issue #5 is in [`docs/peer.md`](docs/peer.md), and issue #6

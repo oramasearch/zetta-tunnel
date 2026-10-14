@@ -1,4 +1,5 @@
 #include "mesh.hpp"
+#include "mesh_netlink.hpp"
 
 #include "peer.hpp"
 #include "tunnel.hpp"
@@ -28,6 +29,7 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -47,10 +49,9 @@ namespace zetta_tunnel::mesh {
 namespace {
 
 using namespace std::chrono_literals;
-constexpr std::uint16_t outbound_port = 15001;
-constexpr std::uint16_t inbound_port = 15008;
-constexpr std::uint32_t bypass_mark = 0x5a54544d;
-constexpr std::string_view table_name = "zetta_mesh";
+using netlink::bypass_mark;
+using netlink::inbound_port;
+using netlink::outbound_port;
 constexpr std::size_t preface_limit = 512;
 volatile std::sig_atomic_t stopping = 0;
 volatile std::sig_atomic_t reloading = 0;
@@ -101,7 +102,9 @@ private:
 };
 
 [[noreturn]] void system_error(std::string_view operation) {
-  throw std::runtime_error(std::string(operation) + ": " + std::strerror(errno));
+  const auto code = errno;
+  throw std::runtime_error(std::string(operation) + ": errno=" + std::to_string(code) + " (" +
+                           std::strerror(code) + ")");
 }
 
 void signal_stop(int) {
@@ -114,16 +117,26 @@ void signal_reload(int) {
 
 class NetworkNamespace {
 public:
-  explicit NetworkNamespace(const std::filesystem::path &path)
-      : original_(::open("/proc/self/ns/net", O_RDONLY | O_CLOEXEC)),
-        target_(::open(path.c_str(), O_RDONLY | O_CLOEXEC)) {
-    if (!original_ || !target_ || ::setns(target_.get(), CLONE_NEWNET) != 0) {
+  explicit NetworkNamespace(const std::filesystem::path &path) {
+    original_.reset(::open("/proc/thread-self/ns/net", O_RDONLY | O_CLOEXEC));
+    if (!original_) {
+      system_error("open current thread network namespace");
+    }
+    target_.reset(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
+    if (!target_) {
+      system_error("open workload network namespace");
+    }
+    if (::setns(target_.get(), CLONE_NEWNET) != 0) {
       system_error("enter workload network namespace");
     }
   }
 
   ~NetworkNamespace() {
     if (original_ && ::setns(original_.get(), CLONE_NEWNET) != 0) {
+      const auto code = errno;
+      std::fprintf(stderr,
+                   "zetta-tunnel: restore thread network namespace: errno=%d (%s); terminating\n",
+                   code, std::strerror(code));
       std::terminate();
     }
   }
@@ -136,247 +149,72 @@ private:
   FileDescriptor target_;
 };
 
-std::size_t aligned(std::size_t size) {
-  return (size + NLA_ALIGNTO - 1) & ~(NLA_ALIGNTO - 1);
-}
-
-bool attribute_valid(const nlattr *attribute, int remaining) {
-  return remaining >= static_cast<int>(sizeof(nlattr)) && attribute->nla_len >= sizeof(nlattr) &&
-         attribute->nla_len <= remaining;
-}
-
-nlattr *next_attribute(nlattr *attribute, int &remaining) {
-  const auto length = static_cast<int>(aligned(attribute->nla_len));
-  remaining -= length;
-  return reinterpret_cast<nlattr *>(reinterpret_cast<std::byte *>(attribute) + length);
-}
-
-class NetlinkMessage {
-public:
-  NetlinkMessage(std::uint16_t type, std::uint16_t flags, std::uint32_t sequence,
-                 std::uint8_t family = NFPROTO_INET) {
-    data_.resize(NLMSG_SPACE(sizeof(nfgenmsg)), std::byte{});
-    auto *header = reinterpret_cast<nlmsghdr *>(data_.data());
-    header->nlmsg_len = static_cast<std::uint32_t>(data_.size());
-    header->nlmsg_type = type;
-    header->nlmsg_flags = flags;
-    header->nlmsg_seq = sequence;
-    auto *generation = reinterpret_cast<nfgenmsg *>(NLMSG_DATA(header));
-    generation->nfgen_family = family;
-    generation->version = NFNETLINK_V0;
-    generation->res_id = htons(NFNL_SUBSYS_NFTABLES);
+void send_request(int socket, std::span<const std::byte> bytes, std::string_view operation) {
+  sockaddr_nl kernel{};
+  kernel.nl_family = AF_NETLINK;
+  const auto sent = ::sendto(socket, bytes.data(), bytes.size(), 0,
+                             reinterpret_cast<const sockaddr *>(&kernel), sizeof(kernel));
+  if (sent < 0) {
+    system_error(operation);
   }
-
-  void attribute(std::uint16_t type, const void *data, std::size_t size) {
-    const auto offset = data_.size();
-    const auto length = sizeof(nlattr) + size;
-    data_.resize(offset + aligned(length), std::byte{});
-    auto *value = reinterpret_cast<nlattr *>(data_.data() + offset);
-    value->nla_type = type;
-    value->nla_len = static_cast<std::uint16_t>(length);
-    std::memcpy(reinterpret_cast<std::byte *>(value) + sizeof(nlattr), data, size);
-    header()->nlmsg_len = static_cast<std::uint32_t>(data_.size());
+  if (static_cast<std::size_t>(sent) != bytes.size()) {
+    throw std::runtime_error(std::string(operation) + ": short netlink datagram");
   }
-
-  void string(std::uint16_t type, std::string_view value) {
-    attribute(type, value.data(), value.size() + 1);
-  }
-
-  void integer(std::uint16_t type, std::uint32_t value) {
-    const auto network = htonl(value);
-    attribute(type, &network, sizeof(network));
-  }
-
-  std::size_t begin(std::uint16_t type) {
-    const auto offset = data_.size();
-    data_.resize(offset + aligned(sizeof(nlattr)), std::byte{});
-    auto *value = reinterpret_cast<nlattr *>(data_.data() + offset);
-    value->nla_type = type | NLA_F_NESTED;
-    value->nla_len = sizeof(nlattr);
-    header()->nlmsg_len = static_cast<std::uint32_t>(data_.size());
-    return offset;
-  }
-
-  void end(std::size_t offset) {
-    auto *value = reinterpret_cast<nlattr *>(data_.data() + offset);
-    value->nla_len = static_cast<std::uint16_t>(data_.size() - offset);
-  }
-
-  nlmsghdr *header() {
-    return reinterpret_cast<nlmsghdr *>(data_.data());
-  }
-
-  const std::vector<std::byte> &data() const {
-    return data_;
-  }
-
-private:
-  std::vector<std::byte> data_;
-};
-
-void add_expression(NetlinkMessage &message, std::string_view name,
-                    const std::function<void(NetlinkMessage &)> &fields) {
-  const auto element = message.begin(NFTA_LIST_ELEM);
-  message.string(NFTA_EXPR_NAME, name);
-  const auto data = message.begin(NFTA_EXPR_DATA);
-  fields(message);
-  message.end(data);
-  message.end(element);
 }
 
-void add_meta(NetlinkMessage &message, std::uint32_t key) {
-  add_expression(message, "meta", [key](NetlinkMessage &value) {
-    value.integer(NFTA_META_KEY, key);
-    value.integer(NFTA_META_DREG, NFT_REG_1);
-  });
-}
-
-void add_payload_port(NetlinkMessage &message) {
-  add_expression(message, "payload", [](NetlinkMessage &value) {
-    value.integer(NFTA_PAYLOAD_BASE, NFT_PAYLOAD_TRANSPORT_HEADER);
-    value.integer(NFTA_PAYLOAD_OFFSET, 2);
-    value.integer(NFTA_PAYLOAD_LEN, 2);
-    value.integer(NFTA_PAYLOAD_DREG, NFT_REG_1);
-  });
-}
-
-void add_compare(NetlinkMessage &message, std::uint32_t operation, const void *data,
-                 std::size_t size) {
-  add_expression(message, "cmp", [operation, data, size](NetlinkMessage &value) {
-    value.integer(NFTA_CMP_SREG, NFT_REG_1);
-    value.integer(NFTA_CMP_OP, operation);
-    const auto nested = value.begin(NFTA_CMP_DATA);
-    value.attribute(NFTA_DATA_VALUE, data, size);
-    value.end(nested);
-  });
-}
-
-void add_redirect(NetlinkMessage &message, std::uint16_t port) {
-  add_expression(message, "immediate", [port](NetlinkMessage &value) {
-    value.integer(NFTA_IMMEDIATE_DREG, NFT_REG_1);
-    const auto nested = value.begin(NFTA_IMMEDIATE_DATA);
-    const auto network = htons(port);
-    value.attribute(NFTA_DATA_VALUE, &network, sizeof(network));
-    value.end(nested);
-  });
-  add_expression(message, "redir", [](NetlinkMessage &value) {
-    value.integer(NFTA_REDIR_REG_PROTO_MIN, NFT_REG_1);
-  });
-}
-
-NetlinkMessage table_message(std::uint32_t sequence) {
-  NetlinkMessage result((NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_NEWTABLE,
-                        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL, sequence);
-  result.string(NFTA_TABLE_NAME, table_name);
-  return result;
-}
-
-NetlinkMessage chain_message(std::uint32_t sequence, std::string_view name, std::uint32_t hook) {
-  NetlinkMessage result((NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_NEWCHAIN,
-                        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL, sequence);
-  result.string(NFTA_CHAIN_TABLE, table_name);
-  result.string(NFTA_CHAIN_NAME, name);
-  result.string(NFTA_CHAIN_TYPE, "nat");
-  const auto nested = result.begin(NFTA_CHAIN_HOOK);
-  result.integer(NFTA_HOOK_HOOKNUM, hook);
-  result.integer(NFTA_HOOK_PRIORITY, static_cast<std::uint32_t>(-100));
-  result.end(nested);
-  result.integer(NFTA_CHAIN_POLICY, NF_ACCEPT);
-  return result;
-}
-
-NetlinkMessage rule_message(std::uint32_t sequence, std::string_view chain, std::uint16_t redirect,
-                            bool output) {
-  NetlinkMessage result((NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_NEWRULE,
-                        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_APPEND, sequence);
-  result.string(NFTA_RULE_TABLE, table_name);
-  result.string(NFTA_RULE_CHAIN, chain);
-  const auto expressions = result.begin(NFTA_RULE_EXPRESSIONS);
-  add_meta(result, NFT_META_L4PROTO);
-  const std::uint8_t tcp = IPPROTO_TCP;
-  add_compare(result, NFT_CMP_EQ, &tcp, sizeof(tcp));
-  if (output) {
-    add_meta(result, NFT_META_MARK);
-    const auto mark = htonl(bypass_mark);
-    add_compare(result, NFT_CMP_NEQ, &mark, sizeof(mark));
-  }
-  add_payload_port(result);
-  const auto mesh_port = htons(inbound_port);
-  add_compare(result, NFT_CMP_NEQ, &mesh_port, sizeof(mesh_port));
-  add_redirect(result, redirect);
-  result.end(expressions);
-  return result;
-}
-
-void send_message(int socket, const NetlinkMessage &message) {
-  const auto &bytes = message.data();
-  if (::send(socket, bytes.data(), bytes.size(), 0) != static_cast<ssize_t>(bytes.size())) {
-    system_error("send nftables request");
+void receive_replies(int socket, netlink::Replies &replies) {
+  const auto deadline = std::chrono::steady_clock::now() + 3s;
+  std::array<std::byte, 16384> buffer{};
+  while (!replies.complete()) {
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+        deadline - std::chrono::steady_clock::now());
+    if (remaining.count() <= 0) {
+      throw std::runtime_error(
+          "nftables acknowledgement timeout: errno=" + std::to_string(ETIMEDOUT) + " (" +
+          std::strerror(ETIMEDOUT) + "); pending: " + replies.pending());
+    }
+    pollfd event{socket, POLLIN, 0};
+    const auto ready = ::poll(&event, 1, static_cast<int>(remaining.count()));
+    if (ready < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      system_error("poll nftables acknowledgement");
+    }
+    if (ready == 0) {
+      continue;
+    }
+    sockaddr_nl sender{};
+    iovec iov{buffer.data(), buffer.size()};
+    msghdr message{};
+    message.msg_name = &sender;
+    message.msg_namelen = sizeof(sender);
+    message.msg_iov = &iov;
+    message.msg_iovlen = 1;
+    const auto size = ::recvmsg(socket, &message, MSG_DONTWAIT);
+    if (size < 0) {
+      if (errno == EINTR || errno == EAGAIN) {
+        continue;
+      }
+      system_error("receive nftables acknowledgement");
+    }
+    if ((message.msg_flags & MSG_TRUNC) != 0) {
+      throw std::runtime_error("truncated nftables acknowledgement datagram");
+    }
+    if (message.msg_namelen != sizeof(sender) || sender.nl_family != AF_NETLINK ||
+        sender.nl_pid != 0) {
+      throw std::runtime_error("nftables acknowledgement did not come from the kernel");
+    }
+    replies.consume(std::span(buffer).first(static_cast<std::size_t>(size)));
   }
 }
 
 bool table_exists(int socket) {
-  NetlinkMessage request((NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_GETTABLE, NLM_F_REQUEST | NLM_F_DUMP,
-                         1);
-  send_message(socket, request);
-  std::array<std::byte, 16384> buffer{};
-  while (true) {
-    auto size = ::recv(socket, buffer.data(), buffer.size(), 0);
-    if (size < 0) {
-      system_error("read nftables table list");
-    }
-    for (auto *header = reinterpret_cast<nlmsghdr *>(buffer.data()); NLMSG_OK(header, size);
-         header = NLMSG_NEXT(header, size)) {
-      if (header->nlmsg_type == NLMSG_DONE) {
-        return false;
-      }
-      if (header->nlmsg_type == NLMSG_ERROR) {
-        const auto *error = reinterpret_cast<const nlmsgerr *>(NLMSG_DATA(header));
-        if (error->error != 0) {
-          errno = -error->error;
-          system_error("list nftables tables");
-        }
-        continue;
-      }
-      const auto *generation = reinterpret_cast<const nfgenmsg *>(NLMSG_DATA(header));
-      auto length = static_cast<int>(header->nlmsg_len - NLMSG_LENGTH(sizeof(nfgenmsg)));
-      auto *attribute = reinterpret_cast<nlattr *>(
-          reinterpret_cast<std::byte *>(const_cast<nfgenmsg *>(generation)) +
-          NLMSG_ALIGN(sizeof(nfgenmsg)));
-      while (attribute_valid(attribute, length)) {
-        if ((attribute->nla_type & NLA_TYPE_MASK) == NFTA_TABLE_NAME) {
-          const auto *name = reinterpret_cast<const char *>(attribute) + sizeof(nlattr);
-          if (std::string_view(name) == table_name) {
-            return true;
-          }
-        }
-        attribute = next_attribute(attribute, length);
-      }
-    }
-  }
-}
-
-void receive_acks(int socket, std::size_t expected) {
-  std::array<std::byte, 16384> buffer{};
-  std::size_t received = 0;
-  while (received < expected) {
-    auto size = ::recv(socket, buffer.data(), buffer.size(), 0);
-    if (size < 0) {
-      system_error("read nftables acknowledgement");
-    }
-    for (auto *header = reinterpret_cast<nlmsghdr *>(buffer.data()); NLMSG_OK(header, size);
-         header = NLMSG_NEXT(header, size)) {
-      if (header->nlmsg_type != NLMSG_ERROR) {
-        continue;
-      }
-      const auto *error = reinterpret_cast<const nlmsgerr *>(NLMSG_DATA(header));
-      if (error->error != 0) {
-        errno = -error->error;
-        system_error("install nftables capture");
-      }
-      ++received;
-    }
-  }
+  const auto query = netlink::table_query();
+  netlink::Replies replies(std::span(&query, 1), true);
+  send_request(socket, query.bytes, "send nftables table lookup");
+  receive_replies(socket, replies);
+  return replies.table_present();
 }
 
 void install_capture(const std::filesystem::path &path) {
@@ -390,23 +228,19 @@ void install_capture(const std::filesystem::path &path) {
   if (::bind(socket.get(), reinterpret_cast<sockaddr *>(&local), sizeof(local)) != 0) {
     system_error("bind nftables netlink socket");
   }
+  const int enabled = 1;
+  if (::setsockopt(socket.get(), SOL_NETLINK, NETLINK_EXT_ACK, &enabled, sizeof(enabled)) != 0 &&
+      errno != ENOPROTOOPT) {
+    system_error("enable nftables extended acknowledgements");
+  }
   if (table_exists(socket.get())) {
     return;
   }
-  std::vector<NetlinkMessage> messages;
-  messages.push_back(table_message(2));
-  messages.push_back(chain_message(3, "outbound", NF_INET_LOCAL_OUT));
-  messages.push_back(chain_message(4, "inbound", NF_INET_PRE_ROUTING));
-  messages.push_back(rule_message(5, "outbound", outbound_port, true));
-  messages.push_back(rule_message(6, "inbound", inbound_port, false));
-  NetlinkMessage begin(NFNL_MSG_BATCH_BEGIN, NLM_F_REQUEST, 7, AF_UNSPEC);
-  NetlinkMessage end(NFNL_MSG_BATCH_END, NLM_F_REQUEST, 8, AF_UNSPEC);
-  send_message(socket.get(), begin);
-  for (const auto &message : messages) {
-    send_message(socket.get(), message);
-  }
-  send_message(socket.get(), end);
-  receive_acks(socket.get(), messages.size());
+  const auto batch = netlink::capture_batch();
+  netlink::Replies replies(batch.requests);
+  // NFNL_MSG_BATCH_BEGIN, every mutation and NFNL_MSG_BATCH_END must share one datagram.
+  send_request(socket.get(), batch.bytes, "send nftables capture batch");
+  receive_replies(socket.get(), replies);
 }
 
 sockaddr_in parse_ipv4(std::string_view value) {
@@ -441,10 +275,14 @@ int listener(const std::filesystem::path &path, std::string_view host, std::uint
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(port);
-  if (::inet_pton(AF_INET, std::string(host).c_str(), &address.sin_addr) != 1 ||
-      ::bind(socket.get(), reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0 ||
-      ::listen(socket.get(), 128) != 0) {
+  if (::inet_pton(AF_INET, std::string(host).c_str(), &address.sin_addr) != 1) {
+    throw std::invalid_argument("invalid mesh listener IPv4 address");
+  }
+  if (::bind(socket.get(), reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0) {
     system_error("bind mesh listener");
+  }
+  if (::listen(socket.get(), 128) != 0) {
+    system_error("listen on mesh capture socket");
   }
   return socket.release();
 }
@@ -487,18 +325,50 @@ std::string original_destination(int socket) {
 using SslContext = std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)>;
 using Ssl = std::unique_ptr<SSL, decltype(&SSL_free)>;
 
-SslContext tls_context(const transport::TlsFiles &files) {
-  SslContext context(SSL_CTX_new(TLS_method()), SSL_CTX_free);
-  if (!context || SSL_CTX_set_min_proto_version(context.get(), TLS1_3_VERSION) != 1 ||
-      SSL_CTX_set_max_proto_version(context.get(), TLS1_3_VERSION) != 1 ||
-      SSL_CTX_use_certificate_chain_file(context.get(), files.certificate.c_str()) != 1 ||
-      SSL_CTX_use_PrivateKey_file(context.get(), files.private_key.c_str(), SSL_FILETYPE_PEM) !=
-          1 ||
-      SSL_CTX_check_private_key(context.get()) != 1 ||
-      SSL_CTX_load_verify_locations(context.get(), files.certificate_authority.c_str(), nullptr) !=
-          1) {
-    throw std::runtime_error("mesh TLS configuration failed");
+[[noreturn]] void tls_error(std::string_view operation) {
+  const auto system_code = errno;
+  const auto code = ERR_get_error();
+  const auto *reason = ERR_reason_error_string(code);
+  throw std::runtime_error(std::string(operation) + ": openssl_error=" + std::to_string(code) +
+                           " (" + (reason != nullptr ? reason : "no OpenSSL error queued") +
+                           ") errno=" + std::to_string(system_code) + " (" +
+                           std::strerror(system_code) + ")");
+}
+
+template <typename Function> void tls_setting(std::string_view operation, Function apply) {
+  ERR_clear_error();
+  errno = 0;
+  if (apply() != 1) {
+    tls_error(operation);
   }
+}
+
+SslContext tls_context(const transport::TlsFiles &files) {
+  ERR_clear_error();
+  errno = 0;
+  SslContext context(SSL_CTX_new(TLS_method()), SSL_CTX_free);
+  if (!context) {
+    tls_error("create mesh TLS context");
+  }
+  tls_setting("set mesh TLS minimum version", [&] {
+    return SSL_CTX_set_min_proto_version(context.get(), TLS1_3_VERSION);
+  });
+  tls_setting("set mesh TLS maximum version", [&] {
+    return SSL_CTX_set_max_proto_version(context.get(), TLS1_3_VERSION);
+  });
+  tls_setting("load mesh certificate chain", [&] {
+    return SSL_CTX_use_certificate_chain_file(context.get(), files.certificate.c_str());
+  });
+  tls_setting("load mesh private key", [&] {
+    return SSL_CTX_use_PrivateKey_file(context.get(), files.private_key.c_str(), SSL_FILETYPE_PEM);
+  });
+  tls_setting("match mesh certificate and private key", [&] {
+    return SSL_CTX_check_private_key(context.get());
+  });
+  tls_setting("load mesh certificate authority", [&] {
+    return SSL_CTX_load_verify_locations(context.get(), files.certificate_authority.c_str(),
+                                         nullptr);
+  });
   SSL_CTX_set_verify(context.get(), SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
   SSL_CTX_set_verify_depth(context.get(), 6);
   SSL_CTX_set_session_cache_mode(context.get(), SSL_SESS_CACHE_OFF);
@@ -647,9 +517,13 @@ class Audit {
 public:
   explicit Audit(const std::string &path) {
     if (path != "-") {
+      errno = 0;
       file_.open(path, std::ios::app | std::ios::binary);
       if (!file_) {
-        throw std::invalid_argument("cannot open mesh audit sink");
+        if (errno == 0) {
+          errno = EIO;
+        }
+        system_error("open mesh audit sink");
       }
       output_ = &file_;
     }
@@ -720,11 +594,15 @@ private:
       system_error("open mesh health listener");
     }
     int enabled = 1;
-    ::setsockopt(socket.get(), SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
+    if (::setsockopt(socket.get(), SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled)) != 0) {
+      system_error("configure mesh health listener");
+    }
     if (::bind(socket.get(), reinterpret_cast<const sockaddr *>(&endpoint), sizeof(endpoint)) !=
-            0 ||
-        ::listen(socket.get(), 16) != 0) {
+        0) {
       system_error("bind mesh health listener");
+    }
+    if (::listen(socket.get(), 16) != 0) {
+      system_error("listen on mesh health socket");
     }
     return socket.release();
   }
@@ -744,18 +622,25 @@ private:
     close_runtime();
     close_sessions();
     wait_for_sessions();
+    std::string step = "projection read/validation";
     try {
       auto configuration = read_configuration(options_.configuration);
       std::vector<std::shared_ptr<Runtime>> replacement;
       for (const auto &workload : configuration.workloads) {
+        const auto context = "workload[" + std::to_string(replacement.size()) + "] ";
+        step = context + "TLS validation";
         static_cast<void>(tls_context(workload.tls));
+        step = context + "capture installation";
         install_capture(workload.network_namespace);
         auto runtime = std::make_shared<Runtime>();
         runtime->workload = workload;
+        step = context + "outbound listener 127.0.0.1:15001";
         runtime->outbound.reset(listener(workload.network_namespace, "127.0.0.1", outbound_port));
+        step = context + "inbound listener 0.0.0.0:15008";
         runtime->inbound.reset(listener(workload.network_namespace, "0.0.0.0", inbound_port));
         replacement.push_back(std::move(runtime));
       }
+      step = "capture listener threads";
       configuration_ = std::move(configuration);
       runtimes_ = std::move(replacement);
       for (const auto &runtime : runtimes_) {
@@ -767,15 +652,27 @@ private:
           accept_loop(value, false);
         });
       }
+      step = "projection modification time";
       modified_ = std::filesystem::last_write_time(options_.configuration);
+      step = "projection file size";
       size_ = std::filesystem::file_size(options_.configuration);
       ++reloads_;
       ready_ = audit_ok_.load();
+    } catch (const std::exception &error) {
+      reload_failed(step, failure_detail(error));
     } catch (...) {
-      configuration_.reset();
-      ++reload_failures_;
-      std::cerr << "zetta-tunnel: mesh projection or capture unavailable; refusing traffic\n";
+      reload_failed(step, "unknown exception");
     }
+  }
+
+  void reload_failed(std::string_view step, std::string_view detail) {
+    ready_ = false;
+    close_runtime();
+    close_sessions();
+    wait_for_sessions();
+    configuration_.reset();
+    ++reload_failures_;
+    std::cerr << "zetta-tunnel: mesh stage=" << step << ": " << detail << "; refusing traffic\n";
   }
 
   void close_runtime() {
@@ -1044,9 +941,14 @@ int run(const Options &options) {
   std::signal(SIGINT, signal_stop);
   std::signal(SIGTERM, signal_stop);
   std::signal(SIGHUP, signal_reload);
-  Agent agent(options);
-  agent.run();
-  return 0;
+  try {
+    Agent agent(options);
+    agent.run();
+    return 0;
+  } catch (const std::exception &error) {
+    std::cerr << "zetta-tunnel: mesh startup: " << failure_detail(error) << "; refusing traffic\n";
+    return 2;
+  }
 }
 
 } // namespace zetta_tunnel::mesh

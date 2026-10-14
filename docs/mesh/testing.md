@@ -1,7 +1,8 @@
 # Mesh verification
 
 The native repository suite validates the exact projection schema, duplicate rejection, file and
-collection bounds, numeric-address requirements, target-port preservation, role flags and all
+collection bounds, numeric-address requirements, target-port preservation, role flags, production
+netlink wire layouts/ACK handling, safe failure diagnostics and all
 existing transport/tunnel/egress/peer/ingress regressions on macOS and Linux.
 
 The capture acceptance test needs a Linux node with root privileges, network namespaces, nftables
@@ -17,6 +18,9 @@ sudo env ZETTA_MESH_PRIVILEGED_TEST=1 \
 Without that environment variable or root, CTest reports the case skipped. The privileged case
 proves:
 
+- malformed and missing projections, a missing namespace, a missing TLS key and an occupied
+  capture listener each report their operation/error and keep readiness false; restoring valid
+  inputs restores readiness without removing capture;
 - capture is installed before the simulated application starts;
 - an exact declared source reaches an exact destination through real TLS 1.3;
 - inbound and outbound allow records exist before application data passes;
@@ -40,6 +44,8 @@ ctest --test-dir build --output-on-failure
 
 The macOS suite intentionally does not pretend to exercise Linux capture. The privileged command
 above is the required node proof.
+
+See [netlink and diagnostics](netlink.md) for fixture provenance and interpreting kernel errors.
 
 For the release image path, `tools/prove-mesh-linux.sh` builds the Dockerfile's test-only target on
 the cluster BuildKit lane and runs this same Python case inside a privileged Linux pod. See

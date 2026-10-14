@@ -86,6 +86,8 @@ add_library(zetta_tunnel_roles STATIC
   src/ingress_http.cpp
   src/ingress_tls.cpp
   src/mesh_config.cpp
+  src/mesh_diagnostics.cpp
+  src/mesh_netlink.cpp
   src/peer.cpp
   src/peer_config.cpp
   src/tunnel.cpp
@@ -196,6 +198,10 @@ add_executable(mesh_config_test tests/mesh_config_test.cpp)
 target_link_libraries(mesh_config_test PRIVATE zetta_tunnel_roles)
 target_compile_options(mesh_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME mesh_config_validation COMMAND mesh_config_test)
+add_executable(mesh_netlink_test tests/mesh_netlink_test.cpp)
+target_link_libraries(mesh_netlink_test PRIVATE zetta_tunnel_roles)
+target_compile_options(mesh_netlink_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME mesh_netlink_wire COMMAND mesh_netlink_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/mesh)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME mesh_linux_fail_closed
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/mesh_linux_integration.py

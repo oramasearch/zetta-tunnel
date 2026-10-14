@@ -69,6 +69,12 @@ DOCKER_CONFIG=/path/to/private/docker-config \
 The proof image is test-only. It contains Python and `iproute2`; neither is present in the release
 image. The assertions remain documented in [mesh verification](mesh/testing.md).
 
+The coordinator built and published `oramasearch/zetta-tunnel:dev-e522b9a`; its first AKS mesh run
+failed at capture readiness. The [netlink correction and startup diagnostics](mesh/netlink.md)
+await a coordinator rerun using the same command. The proof now also checks operation-specific
+failures for projection, namespace, key and listener errors before its existing traffic/restart
+assertions. Native wire tests are not a substitute for this Linux run.
+
 ## Release contract
 
 Steve names the version. A release then follows the organization release rules:

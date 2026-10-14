@@ -131,7 +131,7 @@ class Harness:
     def restore_configuration(self):
         self.write_raw_configuration(json.dumps(self.configuration))
 
-    def start_agent(self):
+    def start_agent(self, ready=True):
         log = open(self.directory / f"agent-{len(self.processes)}.log", "w+")
         process = subprocess.Popen(
             [
@@ -150,8 +150,57 @@ class Harness:
             stderr=log,
         )
         self.processes.append((process, log))
-        eventually(lambda: self.probe("/readyz")[0] == 200)
+        eventually(lambda: self.probe("/readyz")[0] == (200 if ready else 503))
         return process
+
+    def diagnostic(self, text):
+        return any(text in path.read_text() for path in self.directory.glob("agent-*.log"))
+
+    def check_startup_diagnostics(self):
+        self.write_raw_configuration('{"DO_NOT_LOG":"secret-marker",INVALID}')
+        agent = self.start_agent(ready=False)
+        eventually(lambda: self.diagnostic("stage=projection read/validation: projection JSON parse error"))
+        assert not self.diagnostic("secret-marker")
+
+        projection = self.directory / "mesh.json"
+        projection.unlink()
+        eventually(lambda: self.diagnostic("stage=projection read/validation: system_error=2"))
+        self.configuration["mesh"]["workloads"][0]["network_namespace"] = str(self.directory / "absent-netns")
+        self.restore_configuration()
+        eventually(lambda: self.diagnostic("open workload network namespace: errno=2"))
+        assert self.probe("/readyz")[0] == 503
+
+        self.configuration["mesh"]["workloads"][0]["network_namespace"] = f"/var/run/netns/{self.source}"
+        key = self.configuration["mesh"]["workloads"][0]["tls"]["key"]
+        self.configuration["mesh"]["workloads"][0]["tls"]["key"] = str(self.directory / "absent-key")
+        self.restore_configuration()
+        eventually(lambda: self.diagnostic("load mesh private key: openssl_error="))
+        assert self.probe("/readyz")[0] == 503
+        self.configuration["mesh"]["workloads"][0]["tls"]["key"] = key
+
+        # Hold the outbound listener to exercise an actual bind errno after capture commits.
+        marker = self.directory / "listener-bound"
+        code = """
+import signal
+import socket
+import sys
+from pathlib import Path
+s = socket.socket()
+s.bind(('127.0.0.1', 15001))
+s.listen()
+Path(sys.argv[1]).touch()
+signal.pause()
+"""
+        blocker = subprocess.Popen(["ip", "netns", "exec", self.source, sys.executable,
+                                    "-c", code, str(marker)])
+        self.processes.append((blocker, None))
+        eventually(marker.exists)
+        self.restore_configuration()
+        eventually(lambda: self.diagnostic("outbound listener 127.0.0.1:15001: bind mesh listener: errno=98"))
+        assert self.probe("/readyz")[0] == 503
+        self.stop_process(blocker)
+        eventually(lambda: self.probe("/readyz")[0] == 200)
+        return agent
 
     def start_echo(self):
         code = """
@@ -223,7 +272,7 @@ assert s.recv(10) == b'mesh-proof'
 with tempfile.TemporaryDirectory(prefix="mesh-linux-", dir=Path.cwd()) as directory:
     test = Harness(directory)
     try:
-        agent = test.start_agent()
+        agent = test.check_startup_diagnostics()
         assert test.probe("/healthz")[0] == 200
         test.request(test.source, expected=False)
         echo = test.start_echo()
