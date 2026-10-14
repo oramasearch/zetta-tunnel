@@ -321,7 +321,7 @@ bool table_exists(int socket) {
   send_message(socket, request);
   std::array<std::byte, 16384> buffer{};
   while (true) {
-    const auto size = ::recv(socket, buffer.data(), buffer.size(), 0);
+    auto size = ::recv(socket, buffer.data(), buffer.size(), 0);
     if (size < 0) {
       system_error("read nftables table list");
     }
@@ -770,7 +770,7 @@ private:
       modified_ = std::filesystem::last_write_time(options_.configuration);
       size_ = std::filesystem::file_size(options_.configuration);
       ++reloads_;
-      ready_ = audit_ok_;
+      ready_ = audit_ok_.load();
     } catch (...) {
       configuration_.reset();
       ++reload_failures_;

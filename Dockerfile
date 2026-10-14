@@ -14,18 +14,23 @@ RUN apk add --no-cache \
       iproute2 \
       libc++-dev \
       libc++-static \
-      libunwind-dev \
-      libunwind-static \
+      llvm-libunwind-dev \
+      llvm-libunwind-static \
       linux-headers \
       lld20 \
       nghttp2-dev \
       nghttp2-static \
-      ninja-build \
+      samurai \
       openssl-dev \
       openssl-libs-static \
       pkgconf \
       python3 \
       xz
+
+# clang 20 lives under /usr/lib/llvm20/bin on Alpine; samurai provides the ninja command.
+ENV PATH=/usr/lib/llvm20/bin:$PATH \
+    CC=/usr/lib/llvm20/bin/clang \
+    CXX=/usr/lib/llvm20/bin/clang++
 
 RUN curl --fail --location --retry 3 \
       --output /tmp/nlohmann-json.tar.xz \
@@ -40,16 +45,21 @@ RUN curl --fail --location --retry 3 \
     && cmake --build /tmp/nlohmann-json-build --target install -j 6 \
     && rm -rf /tmp/nlohmann-json /tmp/nlohmann-json-build /tmp/nlohmann-json.tar.xz
 
+# pkg-config's imported target links whatever libnghttp2 it finds; with only the static archive left
+# in this build stage, the fully static binary links nghttp2 statically.
+RUN rm -f /usr/lib/libnghttp2.so /usr/lib/libnghttp2.so.*
+
 WORKDIR /src
 COPY . .
 
 RUN cmake -S . -B /build -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_C_COMPILER=clang-20 \
-      -DCMAKE_CXX_COMPILER=clang++-20 \
-      -DCMAKE_CXX_FLAGS="-stdlib=libc++ --rtlib=compiler-rt" \
-      -DCMAKE_EXE_LINKER_FLAGS="-static -stdlib=libc++ --rtlib=compiler-rt -unwindlib=libunwind -fuse-ld=lld" \
+      -DCMAKE_C_COMPILER=/usr/lib/llvm20/bin/clang \
+      -DCMAKE_CXX_COMPILER=/usr/lib/llvm20/bin/clang++ \
+      -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+      -DCMAKE_EXE_LINKER_FLAGS="-static -stdlib=libc++ -lc++abi --rtlib=compiler-rt -unwindlib=libunwind -fuse-ld=lld" \
       -DOPENSSL_USE_STATIC_LIBS=TRUE \
+      -DCMAKE_FIND_LIBRARY_SUFFIXES=.a \
       -Dnlohmann_json_DIR=/opt/nlohmann-json/share/cmake/nlohmann_json \
     && cmake --build /build -j 6 --target zetta-tunnel tunnel_certificates
 
