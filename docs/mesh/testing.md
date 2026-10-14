@@ -40,3 +40,7 @@ ctest --test-dir build --output-on-failure
 
 The macOS suite intentionally does not pretend to exercise Linux capture. The privileged command
 above is the required node proof.
+
+For the release image path, `tools/prove-mesh-linux.sh` builds the Dockerfile's test-only target on
+the cluster BuildKit lane and runs this same Python case inside a privileged Linux pod. See
+[Image and releases](../image.md#linux-mesh-proof) for the coordinator command and cleanup model.

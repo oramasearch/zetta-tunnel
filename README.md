@@ -15,8 +15,8 @@ other providers, where their terms allow.
 
 ## Status
 
-**The transport, developer tunnel, DNS-name egress, peer and ingress gateways, and mesh node agent
-are built.**
+**The transport, developer tunnel, DNS-name egress, peer and ingress gateways, mesh node agent,
+and private amd64 image and release workflow are built.**
 `zetta-tunnel client`, `relay`, and `endpoint` provide grant-certificate authentication,
 one-target forwarding, live revocation/expiry and JSON-lines audit. `zetta-tunnel egress`
 authorizes workload source IPs, exact DNS names and ports from operator-projected rules, with HTTPS
@@ -28,14 +28,15 @@ with body limits, unbuffered streaming, WebSockets, HTTP/2, reloads, probes and 
 identities over mutual TLS while Cilium remains the policy enforcer.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
-The privileged Linux mesh proof, ingress cluster deployment and the ingress-nginx load comparison
-are pending coordinator verification. The decided design is in
+The privileged Linux mesh proof, first image publication, ingress cluster deployment and the
+ingress-nginx load comparison are pending coordinator verification. The decided design is in
 the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
 ([lake#724](https://github.com/oramasearch/lake/issues/724)). See
 [`docs/transport.md`](docs/transport.md), [`docs/tunnel.md`](docs/tunnel.md),
-[`docs/egress.md`](docs/egress.md), [`docs/peer.md`](docs/peer.md) and
-[`docs/ingress.md`](docs/ingress.md) and [`docs/mesh.md`](docs/mesh.md).
+[`docs/egress.md`](docs/egress.md), [`docs/peer.md`](docs/peer.md),
+[`docs/ingress.md`](docs/ingress.md), [`docs/mesh.md`](docs/mesh.md) and
+[`docs/image.md`](docs/image.md).
 Private repository; proprietary to Orama.
 
 ## Why it exists
@@ -98,6 +99,9 @@ cmake --build build -j 6
 ctest --test-dir build --output-on-failure
 ./build/zetta-tunnel --version
 ```
+
+Release images are built without a local container engine on the cluster BuildKit lane. See
+[Image and releases](docs/image.md).
 
 The build produces the `zetta_tunnel_transport` library. Set `BUILD_SHARED_LIBS=ON` for a shared
 library; the public header is [`include/zetta_tunnel/transport.hpp`](include/zetta_tunnel/transport.hpp).

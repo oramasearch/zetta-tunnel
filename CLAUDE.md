@@ -4,10 +4,13 @@ Orama's own network layer, in C++26: tunnels, the mesh and the ingress. Read [`R
 first: it says what this is, why it exists, and which parts are built. The design in
 [orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided; the
 mutual TLS transport, developer tunnel roles, DNS-name egress, peer and ingress gateways, and the
-fail-closed mesh node agent are implemented. The issue #3 contract is in
+fail-closed mesh node agent are implemented. The private amd64 image and release workflow are
+implemented; publication and the Linux image proof await coordinator verification. The issue #3
+contract is in
 [`docs/tunnel.md`](docs/tunnel.md), issue #4 is in
 [`docs/egress.md`](docs/egress.md), issue #5 is in [`docs/peer.md`](docs/peer.md), and issue #6
-is in [`docs/ingress.md`](docs/ingress.md). Issue #7 is in [`docs/mesh.md`](docs/mesh.md). Ingress
+is in [`docs/ingress.md`](docs/ingress.md). Issue #7 is in [`docs/mesh.md`](docs/mesh.md), and issue
+#8 is in [`docs/image.md`](docs/image.md). Ingress
 deployment, the ingress-nginx comparison and the privileged Linux mesh proof are pending
 coordinator verification. JSON-lines audit is built; the Zetta writer is deferred to zetta#1281.
 

@@ -113,11 +113,15 @@ target_include_directories(zetta-tunnel PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gene
 target_compile_options(zetta-tunnel PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 enable_testing()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME version_reports_project_version COMMAND zetta-tunnel --version)
 set_tests_properties(version_reports_project_version PROPERTIES
   PASS_REGULAR_EXPRESSION "^zetta-tunnel ${PROJECT_VERSION}\n$")
 add_test(NAME unknown_argument_fails COMMAND zetta-tunnel --no-such-flag)
 set_tests_properties(unknown_argument_fails PROPERTIES WILL_FAIL TRUE)
+add_test(NAME image_contract
+  COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/image_contract.py
+    $<TARGET_FILE:zetta-tunnel> ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_VERSION})
 
 add_executable(transport_test tests/transport_test.cpp)
 target_link_libraries(transport_test
@@ -143,7 +147,6 @@ foreach(ZETTA_TUNNEL_TRANSPORT_CASE
   set_tests_properties(transport_${ZETTA_TUNNEL_TRANSPORT_CASE} PROPERTIES TIMEOUT 20)
 endforeach()
 
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_executable(tunnel_certificates tests/tunnel_certificates.cpp)
 target_link_libraries(tunnel_certificates PRIVATE OpenSSL::Crypto)
 target_compile_options(tunnel_certificates PRIVATE -Wall -Wextra -Wpedantic -Werror)
