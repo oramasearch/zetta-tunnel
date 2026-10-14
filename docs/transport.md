@@ -80,7 +80,8 @@ before application data:
 The same source and tests build as a static library by default and as a shared library with
 `-DBUILD_SHARED_LIBS=ON`.
 
-Static builds define `ZETTA_TUNNEL_TRANSPORT_STATIC` for consumers so Windows does not attempt to
-import static symbols from a DLL. Test certificate paths use portable filesystem APIs and are kept
-in the build directory. `.clang-format` defines the repository's C++ formatting, including expanded
-function bodies.
+The developer roles add a private full-duplex streaming adapter over Corosio TCP and OpenSSL,
+described in [the tunnel contract](tunnel.md). This preserves the framed API's serialized
+operation contract. Static builds define `ZETTA_TUNNEL_TRANSPORT_STATIC` for consumers so Windows
+does not attempt to import static symbols from a DLL. Test certificate paths use portable
+filesystem APIs and are kept in the build directory.

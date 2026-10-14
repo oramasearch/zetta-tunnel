@@ -3,7 +3,9 @@
 Orama's own network layer, in C++26: tunnels, the mesh and the ingress. Read [`README.md`](README.md)
 first: it says what this is, why it exists, and which parts are built. The design in
 [orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided; the
-mutual TLS transport is the first implemented part.
+mutual TLS transport and developer tunnel roles are implemented. The issue #3 contract is in
+[`docs/tunnel.md`](docs/tunnel.md); JSON-lines audit is built and the Zetta writer is deferred to
+zetta#1281.
 
 The organisation's rules are in the umbrella bridge's `CLAUDE.md`
 (https://github.com/oramasearch/orama-bridge). The ones that apply here every day:

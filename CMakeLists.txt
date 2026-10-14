@@ -73,6 +73,22 @@ set_target_properties(zetta_tunnel_transport PROPERTIES
 )
 
 add_executable(zetta-tunnel src/main.cpp)
+find_package(nlohmann_json 3.12 REQUIRED)
+add_library(zetta_tunnel_roles STATIC
+  src/tunnel.cpp
+  src/tunnel_config.cpp
+  src/tunnel_io.cpp
+)
+target_link_libraries(zetta_tunnel_roles PUBLIC
+  zetta_tunnel_transport
+  Boost::capy
+  Boost::corosio
+  OpenSSL::SSL
+  nlohmann_json::nlohmann_json
+)
+target_include_directories(zetta_tunnel_roles PUBLIC src)
+target_compile_options(zetta_tunnel_roles PRIVATE -Wall -Wextra -Wpedantic -Werror)
+target_link_libraries(zetta-tunnel PRIVATE zetta_tunnel_roles)
 target_include_directories(zetta-tunnel PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_compile_options(zetta-tunnel PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
@@ -106,3 +122,25 @@ foreach(ZETTA_TUNNEL_TRANSPORT_CASE
   )
   set_tests_properties(transport_${ZETTA_TUNNEL_TRANSPORT_CASE} PROPERTIES TIMEOUT 20)
 endforeach()
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_executable(tunnel_certificates tests/tunnel_certificates.cpp)
+target_link_libraries(tunnel_certificates PRIVATE OpenSSL::Crypto)
+target_compile_options(tunnel_certificates PRIVATE -Wall -Wextra -Wpedantic -Werror)
+foreach(ZETTA_TUNNEL_CASE
+    roundtrip revoke expiry expired_cert unknown_grant wrong_ca no_uri multiple_uri
+    long_lived certificate_bound expired_grant endpoint_identity relay_identity
+    server_identity target_isolation invalid_reload sighup capacity postgres
+    tls_boundaries backpressure setup_timeout projected_reload removed_file grant_change
+    audit_failure invalid_credentials)
+  add_test(NAME tunnel_${ZETTA_TUNNEL_CASE}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/tunnel_integration.py
+      $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates> ${ZETTA_TUNNEL_CASE})
+  set_tests_properties(tunnel_${ZETTA_TUNNEL_CASE} PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+endforeach()
+set_tests_properties(tunnel_postgres PROPERTIES SKIP_RETURN_CODE 77)
+
+add_executable(tunnel_config_test tests/tunnel_config_test.cpp)
+target_link_libraries(tunnel_config_test PRIVATE zetta_tunnel_roles)
+target_compile_options(tunnel_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME tunnel_config_validation COMMAND tunnel_config_test)
