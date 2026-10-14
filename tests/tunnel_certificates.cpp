@@ -96,6 +96,9 @@ int main(int argc, char **argv) {
     issue(directory, "no-uri", &tunnel_ca, "DNS:developer.test");
     issue(directory, "multiple-uri", &tunnel_ca, uri + "," + uri);
     issue(directory, "long-lived", &tunnel_ca, uri, 86400);
+    issue(directory, "peer-a", &workload_ca, "DNS:peer-a.test");
+    issue(directory, "peer-b", &workload_ca, "DNS:peer-b.test");
+    issue(directory, "wrong-peer", &workload_ca, "DNS:wrong-peer.test");
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

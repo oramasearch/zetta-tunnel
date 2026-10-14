@@ -15,18 +15,20 @@ other providers, where their terms allow.
 
 ## Status
 
-**The transport, developer tunnel and DNS-name egress gateway are built.** `zetta-tunnel client`,
-`relay`, and `endpoint` provide grant-certificate authentication, one-target forwarding, live
-revocation/expiry and JSON-lines audit. `zetta-tunnel egress` authorizes workload source IPs, exact
-DNS names and ports from operator-projected rules, with HTTPS SNI and explicit other-TCP routing.
+**The transport, developer tunnel, DNS-name egress gateway and peer gateway are built.**
+`zetta-tunnel client`, `relay`, and `endpoint` provide grant-certificate authentication,
+one-target forwarding, live revocation/expiry and JSON-lines audit. `zetta-tunnel egress`
+authorizes workload source IPs, exact DNS names and ports from operator-projected rules, with HTTPS
+SNI and explicit other-TCP routing. `zetta-tunnel peer` exchanges only projected named services
+over mutual TLS, including when the two sites use identical private addresses.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
-Peer gateways, the mesh and ingress remain unbuilt. The decided design is in
+The mesh and ingress remain unbuilt. The decided design is in
 the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
 ([lake#724](https://github.com/oramasearch/lake/issues/724)). See
-[`docs/transport.md`](docs/transport.md), [`docs/tunnel.md`](docs/tunnel.md) and
-[`docs/egress.md`](docs/egress.md).
+[`docs/transport.md`](docs/transport.md), [`docs/tunnel.md`](docs/tunnel.md),
+[`docs/egress.md`](docs/egress.md) and [`docs/peer.md`](docs/peer.md).
 Private repository; proprietary to Orama.
 
 ## Why it exists
