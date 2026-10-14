@@ -77,6 +77,8 @@ find_package(nlohmann_json 3.12 REQUIRED)
 add_library(zetta_tunnel_roles STATIC
   src/egress.cpp
   src/egress_config.cpp
+  src/peer.cpp
+  src/peer_config.cpp
   src/tunnel.cpp
   src/tunnel_config.cpp
   src/tunnel_io.cpp
@@ -152,6 +154,11 @@ target_link_libraries(egress_config_test PRIVATE zetta_tunnel_roles)
 target_compile_options(egress_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME egress_config_validation COMMAND egress_config_test)
 
+add_executable(peer_config_test tests/peer_config_test.cpp)
+target_link_libraries(peer_config_test PRIVATE zetta_tunnel_roles)
+target_compile_options(peer_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME peer_config_validation COMMAND peer_config_test)
+
 foreach(ZETTA_TUNNEL_EGRESS_CASE
     allowed
     sni
@@ -171,4 +178,21 @@ foreach(ZETTA_TUNNEL_EGRESS_CASE
       $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates>
       ${ZETTA_TUNNEL_EGRESS_CASE})
   set_tests_properties(egress_${ZETTA_TUNNEL_EGRESS_CASE} PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
+endforeach()
+
+foreach(ZETTA_TUNNEL_PEER_CASE
+    roundtrip
+    named_only
+    revoke
+    mutual_tls
+    reload
+    invalid_reload
+    setup_timeout
+    capacity
+    audit_failure)
+  add_test(NAME peer_${ZETTA_TUNNEL_PEER_CASE}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/peer_integration.py
+      $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates>
+      ${ZETTA_TUNNEL_PEER_CASE})
+  set_tests_properties(peer_${ZETTA_TUNNEL_PEER_CASE} PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
 endforeach()
