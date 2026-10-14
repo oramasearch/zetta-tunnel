@@ -15,20 +15,24 @@ other providers, where their terms allow.
 
 ## Status
 
-**The transport, developer tunnel, DNS-name egress gateway and peer gateway are built.**
+**The transport, developer tunnel, DNS-name egress, peer and ingress gateways are built.**
 `zetta-tunnel client`, `relay`, and `endpoint` provide grant-certificate authentication,
 one-target forwarding, live revocation/expiry and JSON-lines audit. `zetta-tunnel egress`
 authorizes workload source IPs, exact DNS names and ports from operator-projected rules, with HTTPS
 SNI and explicit other-TCP routing. `zetta-tunnel peer` exchanges only projected named services
 over mutual TLS, including when the two sites use identical private addresses.
+`zetta-tunnel ingress` terminates mounted cert-manager TLS and routes hosts/paths to Services,
+with body limits, unbuffered streaming, WebSockets, HTTP/2, reloads, probes and metrics.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
-The mesh and ingress remain unbuilt. The decided design is in
+The mesh remains unbuilt. Ingress cluster deployment and the ingress-nginx load comparison are
+pending coordinator verification. The decided design is in
 the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
 ([lake#724](https://github.com/oramasearch/lake/issues/724)). See
 [`docs/transport.md`](docs/transport.md), [`docs/tunnel.md`](docs/tunnel.md),
-[`docs/egress.md`](docs/egress.md) and [`docs/peer.md`](docs/peer.md).
+[`docs/egress.md`](docs/egress.md), [`docs/peer.md`](docs/peer.md) and
+[`docs/ingress.md`](docs/ingress.md).
 Private repository; proprietary to Orama.
 
 ## Why it exists
@@ -81,7 +85,8 @@ rules enforced by source, exact name and port. See the [tunnel contract](docs/tu
 
 ## Build and test
 
-C++26, CMake 3.28 or newer, Clang 17 or newer, OpenSSL 3, nlohmann/json 3.12 and Python 3 for tests.
+C++26, CMake 3.28 or newer, Clang 17 or newer, OpenSSL 3, nlohmann/json 3.12,
+pkg-config, libnghttp2 >= 1.61 and Python 3 for tests.
 See [build prerequisites and verification](docs/tunnel/testing.md).
 
 ```sh
