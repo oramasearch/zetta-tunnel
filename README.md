@@ -15,15 +15,18 @@ other providers, where their terms allow.
 
 ## Status
 
-**The transport and developer tunnel are built.** `zetta-tunnel client`, `relay`, and `endpoint`
-provide grant-certificate authentication, one-target forwarding, live revocation/expiry and
-JSON-lines audit. `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections,
-pinned peer identities, binary frames and clean TLS shutdown. Workspace Zetta audit delivery is
-deferred to zetta#1281. Gateways, the mesh and ingress remain unbuilt. The decided design is in
+**The transport, developer tunnel and DNS-name egress gateway are built.** `zetta-tunnel client`,
+`relay`, and `endpoint` provide grant-certificate authentication, one-target forwarding, live
+revocation/expiry and JSON-lines audit. `zetta-tunnel egress` authorizes workload source IPs, exact
+DNS names and ports from operator-projected rules, with HTTPS SNI and explicit other-TCP routing.
+`zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
+binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
+Peer gateways, the mesh and ingress remain unbuilt. The decided design is in
 the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
 ([lake#724](https://github.com/oramasearch/lake/issues/724)). See
-[`docs/transport.md`](docs/transport.md) and [`docs/tunnel.md`](docs/tunnel.md).
+[`docs/transport.md`](docs/transport.md), [`docs/tunnel.md`](docs/tunnel.md) and
+[`docs/egress.md`](docs/egress.md).
 Private repository; proprietary to Orama.
 
 ## Why it exists
@@ -69,8 +72,10 @@ From the epic and the decided design:
   ([orama-operator#457](https://github.com/oramasearch/orama-operator/issues/457)) and routes each
   host to its Service, replacing ingress-nginx, which is retired upstream.
 
-**Decided and implemented:** TLS 1.3 over Corosio, Lake-issued grant certificates, operator-projected
-grant files and relay-enforced revocation. See the [tunnel contract](docs/tunnel.md).
+**Decided and implemented:** TLS 1.3 over Corosio, Lake-issued grant certificates,
+operator-projected grant files and relay-enforced revocation, plus operator-projected DNS egress
+rules enforced by source, exact name and port. See the [tunnel contract](docs/tunnel.md) and
+[egress contract](docs/egress.md).
 
 ## Build and test
 

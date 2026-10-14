@@ -70,6 +70,29 @@ public:
                                   {"reason", record.reason},
                                   {"bytes_up", record.bytes_up},
                                   {"bytes_down", record.bytes_down}};
+    write_json(value);
+  }
+
+  void write(const EgressDecision &record) override {
+    const nlohmann::json value = {{"schema", 1},
+                                  {"event", "egress_decision"},
+                                  {"role", "egress"},
+                                  {"timestamp", format_time(std::chrono::system_clock::now())},
+                                  {"started_at", format_time(record.started_at)},
+                                  {"decision", record.decision},
+                                  {"reason", record.reason},
+                                  {"rule_id", record.rule_id},
+                                  {"workspace", record.workspace},
+                                  {"source", record.source},
+                                  {"dns_name", record.dns_name},
+                                  {"port", record.port},
+                                  {"protocol", record.protocol},
+                                  {"resolved_address", record.resolved_address}};
+    write_json(value);
+  }
+
+private:
+  void write_json(const nlohmann::json &value) {
     *output_ << value.dump() << '\n';
     output_->flush();
     if (!*output_) {
@@ -77,7 +100,6 @@ public:
     }
   }
 
-private:
   std::ofstream file_;
   std::ostream *output_ = &std::cout;
 };
@@ -298,12 +320,13 @@ Options parse_options(std::span<char *> args) {
 }
 
 void print_help(std::ostream &output) {
-  output << "usage: zetta-tunnel client|relay|endpoint [flags]\n"
+  output << "usage: zetta-tunnel client|relay|endpoint|egress [flags]\n"
          << "all: --cert FILE --key FILE --ca FILE [--listen IP:PORT] [--max-sessions 128]\n"
          << "client: --relay HOST:PORT [--server-name DNS_OR_IP]\n"
          << "relay: --grants FILE --endpoint-cert FILE --endpoint-key FILE --endpoint-ca FILE\n"
          << "endpoint: --target HOST:PORT --peer-name DNS_OR_IP\n"
          << "relay/endpoint: [--health-listen IP:PORT] [--audit FILE|-]\n"
+         << "egress: see zetta-tunnel egress --help and docs/egress.md\n"
          << "See docs/tunnel.md for identity, grant, and audit contracts.\n";
 }
 

@@ -75,6 +75,8 @@ set_target_properties(zetta_tunnel_transport PROPERTIES
 add_executable(zetta-tunnel src/main.cpp)
 find_package(nlohmann_json 3.12 REQUIRED)
 add_library(zetta_tunnel_roles STATIC
+  src/egress.cpp
+  src/egress_config.cpp
   src/tunnel.cpp
   src/tunnel_config.cpp
   src/tunnel_io.cpp
@@ -144,3 +146,29 @@ add_executable(tunnel_config_test tests/tunnel_config_test.cpp)
 target_link_libraries(tunnel_config_test PRIVATE zetta_tunnel_roles)
 target_compile_options(tunnel_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME tunnel_config_validation COMMAND tunnel_config_test)
+
+add_executable(egress_config_test tests/egress_config_test.cpp)
+target_link_libraries(egress_config_test PRIVATE zetta_tunnel_roles)
+target_compile_options(egress_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME egress_config_validation COMMAND egress_config_test)
+
+foreach(ZETTA_TUNNEL_EGRESS_CASE
+    allowed
+    sni
+    sni_denied
+    denied
+    ip_literal
+    rebinding
+    source_binding
+    reload
+    invalid_reload
+    projected_reload
+    setup_timeout
+    capacity
+    audit_failure)
+  add_test(NAME egress_${ZETTA_TUNNEL_EGRESS_CASE}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/egress_integration.py
+      $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates>
+      ${ZETTA_TUNNEL_EGRESS_CASE})
+  set_tests_properties(egress_${ZETTA_TUNNEL_EGRESS_CASE} PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
+endforeach()

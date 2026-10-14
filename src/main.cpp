@@ -1,3 +1,4 @@
+#include "egress.hpp"
 #include "tunnel.hpp"
 #include <zetta_tunnel/version.hpp>
 
@@ -15,8 +16,15 @@ int main(int argc, char **argv) {
     }
     if ((args.size() == 1 && std::string_view(args[0]) == "--help") ||
         (args.size() == 2 && std::string_view(args[1]) == "--help")) {
-      zetta_tunnel::tunnel::print_help(std::cout);
+      if (!args.empty() && std::string_view(args[0]) == "egress") {
+        zetta_tunnel::egress::print_help(std::cout);
+      } else {
+        zetta_tunnel::tunnel::print_help(std::cout);
+      }
       return 0;
+    }
+    if (!args.empty() && std::string_view(args[0]) == "egress") {
+      return zetta_tunnel::egress::run(zetta_tunnel::egress::parse_options(args));
     }
     return zetta_tunnel::tunnel::run(zetta_tunnel::tunnel::parse_options(args));
   } catch (const std::exception &) {
