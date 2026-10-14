@@ -1,5 +1,7 @@
 # Documentation
 
+- [Architecture](architecture.md): where zetta-tunnel sits under Lake and the operator, the one
+  transport, how each role carries traffic, and what runs where on a cluster.
 - [Developer tunnel contract](tunnel.md): Lake certificates, grant projection, revocation, audit,
   all role flags, health and readiness.
 - [Client](client.md), [relay](relay.md), and [endpoint](endpoint.md): role deployment references.

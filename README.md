@@ -28,13 +28,13 @@ with body limits, unbuffered streaming, WebSockets, HTTP/2, reloads, probes and 
 identities over mutual TLS while Cilium remains the policy enforcer.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
-The coordinator built and published `oramasearch/zetta-tunnel:dev-e522b9a`. Its first privileged
-Linux mesh proof failed at capture readiness; the netlink correction and diagnostic proof await
-a coordinator rerun. Ingress cluster deployment and the ingress-nginx load comparison are pending
-coordinator verification. The decided design is in
+The image `oramasearch/zetta-tunnel:dev-933d6fc` is built and published (private). The privileged
+Linux mesh proof passed on an AKS node with that build. Ingress cluster deployment and the
+ingress-nginx load comparison are pending (orama-operator#473). The decided design is in
 the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
-([lake#724](https://github.com/oramasearch/lake/issues/724)). See
+([lake#724](https://github.com/oramasearch/lake/issues/724)). How the roles fit together, and with Lake and the operator: [`docs/architecture.md`](docs/architecture.md).
+See
 [`docs/transport.md`](docs/transport.md), [`docs/tunnel.md`](docs/tunnel.md),
 [`docs/egress.md`](docs/egress.md), [`docs/peer.md`](docs/peer.md),
 [`docs/ingress.md`](docs/ingress.md), [`docs/mesh.md`](docs/mesh.md) and
