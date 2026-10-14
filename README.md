@@ -1,10 +1,13 @@
 # zetta-tunnel
 
-**zetta-tunnel is Orama's own tunnel**: a C++26 program that gives a developer, or another
-network, a narrow, authenticated path to one service, app or deployment inside an Orama workspace,
-without exposing it to the internet.
+**zetta-tunnel is Orama's own network layer**, in C++26. It does three things:
 
-The Orama operator manages tunnels as an abstract kind with a provider behind it, the way a
+- **Tunnels:** a developer, or another network, gets a narrow, authenticated path to one service,
+  app or deployment inside an Orama workspace, without exposing it to the internet.
+- **The mesh:** connections between workloads carry identity and mutual TLS.
+- **The ingress:** traffic enters a cluster through it, replacing ingress-nginx.
+
+The Orama operator manages each of these as an abstract kind with a provider behind it, the way a
 `KubernetesCluster` is backed by an `AksCluster`. zetta-tunnel is the provider Orama owns: it runs
 inside our clusters, inside a customer's own cluster, and with no internet access at all, and it is
 licensed so that Orama can sell it. Third-party tunnel services can sit behind the same kind as
@@ -47,6 +50,18 @@ From the epic and the research, to be settled in the design:
 - It runs without any outside service, behind restricted Pod Security in the workspace.
 - Possibly, later: service-addressed links between clusters or to a customer's network, whose
   addresses overlap ours (every AKS cluster today uses `10.224.0.0/12`).
+
+**As the mesh** (Steve, 2026-10-14: *"d7 and d8 are zetta-tunnel too"*):
+- Connections between workloads carry identity and mutual TLS, without changing the workloads,
+  which stay under restricted Pod Security with no `NET_ADMIN`.
+- It must fail closed: traffic that escapes capture escapes the policy. Istio ambient's CNI plugin
+  and ztunnel are the benchmark.
+- It runs beside AKS-managed Cilium, which stays the enforcer, as defence in depth.
+
+**As the ingress:**
+- Traffic enters a cluster through it. It terminates TLS with certificates cert-manager issues
+  ([orama-operator#457](https://github.com/oramasearch/orama-operator/issues/457)) and routes each
+  host to its Service, replacing ingress-nginx, which is retired upstream.
 
 **Open, for the design:** the transport (WireGuard through the OS kernel, QUIC, or TLS over
 Corosio as Zetta's node-to-node links already use), the relay, the client a developer installs,

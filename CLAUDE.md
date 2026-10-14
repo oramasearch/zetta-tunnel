@@ -1,6 +1,6 @@
 # zetta-tunnel
 
-Orama's own tunnel, in C++26. Read [`README.md`](README.md) first: it says what this is, why it
+Orama's own network layer, in C++26: tunnels, the mesh and the ingress. Read [`README.md`](README.md) first: it says what this is, why it
 exists, and that nothing is built until the design in
 [orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided.
 
