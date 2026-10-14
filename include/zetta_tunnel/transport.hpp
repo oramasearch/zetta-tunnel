@@ -10,12 +10,14 @@
 #include <string_view>
 #include <vector>
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(ZETTA_TUNNEL_TRANSPORT_STATIC)
 #if defined(zetta_tunnel_transport_EXPORTS)
 #define ZETTA_TUNNEL_TRANSPORT_EXPORT __declspec(dllexport)
 #else
 #define ZETTA_TUNNEL_TRANSPORT_EXPORT __declspec(dllimport)
 #endif
+#elif defined(_WIN32)
+#define ZETTA_TUNNEL_TRANSPORT_EXPORT
 #else
 #define ZETTA_TUNNEL_TRANSPORT_EXPORT __attribute__((visibility("default")))
 #endif

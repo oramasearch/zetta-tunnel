@@ -15,12 +15,16 @@ other providers, where their terms allow.
 
 ## Status
 
-**The transport is built.** `zetta_tunnel_transport` provides mutual TLS 1.3 client/server
-connections, pinned peer identities, binary frames and clean TLS shutdown. Tunnels, gateways, the
-mesh and ingress remain unbuilt. The decided design is in the operator's secure-networking epic
+**The transport and developer tunnel are built.** `zetta-tunnel client`, `relay`, and `endpoint`
+provide grant-certificate authentication, one-target forwarding, live revocation/expiry and
+JSON-lines audit. `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections,
+pinned peer identities, binary frames and clean TLS shutdown. Workspace Zetta audit delivery is
+deferred to zetta#1281. Gateways, the mesh and ingress remain unbuilt. The decided design is in
+the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
 ([lake#724](https://github.com/oramasearch/lake/issues/724)). See
-[`docs/transport.md`](docs/transport.md). Private repository; proprietary to Orama.
+[`docs/transport.md`](docs/transport.md) and [`docs/tunnel.md`](docs/tunnel.md).
+Private repository; proprietary to Orama.
 
 ## Why it exists
 
@@ -41,13 +45,14 @@ The research behind it is in the operator repository,
 
 ## What it has to do
 
-From the epic and the research, to be settled in the design:
+From the epic and the decided design:
 
 - A developer authenticates as themselves and opens a tunnel to **one** service, app or deployment;
   nothing else in the workspace is reachable through it.
 - Access is granted, expires, is revoked, and is audited per person. Lake issues and shows it.
-- Traffic is encrypted end to end between the developer's machine and the tunnel's endpoint in the
-  cluster, and the endpoint's path into the workspace is a declared, narrow network policy.
+- Traffic uses mutual TLS from the developer's machine to the trusted relay and from the relay to
+  the endpoint. Application TLS may run inside it. The endpoint's path into the workspace is a
+  declared, narrow network policy.
 - It runs without any outside service, behind restricted Pod Security in the workspace.
 - Possibly, later: service-addressed links between clusters or to a customer's network, whose
   addresses overlap ours (every AKS cluster today uses `10.224.0.0/12`).
@@ -64,17 +69,17 @@ From the epic and the research, to be settled in the design:
   ([orama-operator#457](https://github.com/oramasearch/orama-operator/issues/457)) and routes each
   host to its Service, replacing ingress-nginx, which is retired upstream.
 
-**Open, for the design:** the transport (WireGuard through the OS kernel, QUIC, or TLS over
-Corosio as Zetta's node-to-node links already use), the relay, the client a developer installs,
-and how it authenticates.
+**Decided and implemented:** TLS 1.3 over Corosio, Lake-issued grant certificates, operator-projected
+grant files and relay-enforced revocation. See the [tunnel contract](docs/tunnel.md).
 
 ## Build and test
 
-C++26, CMake 3.28 or newer, and Clang 17 or newer (on macOS, Homebrew LLVM: `brew install llvm`).
+C++26, CMake 3.28 or newer, Clang 17 or newer, OpenSSL 3, nlohmann/json 3.12 and Python 3 for tests.
+See [build prerequisites and verification](docs/tunnel/testing.md).
 
 ```sh
 cmake -S . -B build -G Ninja
-cmake --build build
+cmake --build build -j 6
 ctest --test-dir build --output-on-failure
 ./build/zetta-tunnel --version
 ```
