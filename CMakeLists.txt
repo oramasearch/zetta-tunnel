@@ -55,6 +55,13 @@ add_subdirectory(modules/capy EXCLUDE_FROM_ALL)
 if(APPLE)
   list(APPEND CMAKE_PREFIX_PATH /opt/homebrew/opt/openssl@3)
 endif()
+# A portable build links OpenSSL and nghttp2 statically, so the binary needs nothing beyond the
+# operating system's own libraries: the tunnel client Lake hands to developers (lake#745,
+# tools/build-clients.sh). The Linux image is fully static on its own (Dockerfile).
+option(ZETTA_TUNNEL_PORTABLE "Link OpenSSL and nghttp2 statically, for distribution" OFF)
+if(ZETTA_TUNNEL_PORTABLE)
+  set(OPENSSL_USE_STATIC_LIBS TRUE)
+endif()
 find_package(OpenSSL 3 REQUIRED)
 find_package(Threads REQUIRED)
 set(BOOST_COROSIO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -91,6 +98,10 @@ install(TARGETS zetta-tunnel RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 find_package(nlohmann_json 3.12 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2>=1.61)
+if(ZETTA_TUNNEL_PORTABLE)
+  find_library(NGHTTP2_STATIC_LIBRARY NAMES libnghttp2.a HINTS ${NGHTTP2_LIBRARY_DIRS} REQUIRED NO_DEFAULT_PATH)
+  set_property(TARGET PkgConfig::NGHTTP2 PROPERTY INTERFACE_LINK_LIBRARIES ${NGHTTP2_STATIC_LIBRARY})
+endif()
 add_library(zetta_tunnel_roles STATIC
   src/egress.cpp
   src/egress_config.cpp

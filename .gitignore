@@ -24,3 +24,6 @@ compile_commands.json
 /peer_config_test
 /mesh_config_test
 /mesh_netlink_test
+
+# tools/build-clients.sh output
+/dist/
