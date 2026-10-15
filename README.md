@@ -28,8 +28,9 @@ with body limits, unbuffered streaming, WebSockets, HTTP/2, reloads, probes and 
 identities over mutual TLS while Cilium remains the policy enforcer.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
-The image `oramasearch/zetta-tunnel:dev-933d6fc` is built and published (private). The privileged
-Linux mesh proof passed on an AKS node with that build. Ingress cluster deployment and the
+**Released as [v0.1.0](docs/releases/v0.1.0.md)** (2026-10-15): the private image
+`oramasearch/zetta-tunnel:v0.1.0` and portable tunnel clients for macOS arm64 and Linux amd64. The
+privileged Linux mesh proof passed on an AKS node. Ingress cluster deployment and the
 ingress-nginx load comparison are pending (orama-operator#473). The decided design is in
 the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
