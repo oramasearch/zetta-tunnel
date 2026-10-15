@@ -96,3 +96,24 @@ Steve names the version. A release then follows the organization release rules:
 Do not publish `latest`. A release is incomplete until its Git tag, GitHub release, immutable image
 tag and deployed digest all identify the same source.
 
+
+## Tunnel clients for developers
+
+Lake hands the `client` role to developers as a download (lake#745). `tools/build-clients.sh` builds
+them into one folder, with `SHA256SUMS` and `VERSION`:
+
+| File | Built | Depends on |
+|---|---|---|
+| `zetta-tunnel-darwin-arm64` | on a Mac, `-DZETTA_TUNNEL_PORTABLE=ON`: OpenSSL and nghttp2 linked statically | only `/usr/lib/libc++` and `libSystem`; the script refuses any other library |
+| `zetta-tunnel-linux-amd64` | the image's `runtime` stage on the cluster BuildKit (`BUILDKIT_ADDR`), written out as a file | nothing: fully static |
+
+```sh
+BUILDKIT_ADDR="kube-pod://<buildkit pod>?context=orama-production-cluster-01&namespace=buildkit" \
+CLIENTS_IMAGE=docker.io/oramasearch/zetta-tunnel-clients:<version>-<sha> tools/build-clients.sh
+```
+
+With `CLIENTS_IMAGE` the folder is pushed as a private scratch image holding `/clients/*`
+(`tools/clients.Dockerfile`), which Lake's image build copies from. The repository
+`oramasearch/zetta-tunnel-clients` was created private before its first push; check an anonymous
+lookup still answers 404 after a push. macOS on Intel (an x86_64 OpenSSL), Linux arm64 and Windows are
+not built yet.
