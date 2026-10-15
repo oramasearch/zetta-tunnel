@@ -110,8 +110,8 @@ sudo cmake --install build            # /usr/local/bin/zetta-tunnel
 cmake --install build --prefix ~/.local  # or ~/.local/bin/zetta-tunnel, without sudo
 ```
 
-Build out of the source tree, as above: a build inside it leaves CMake's files in the checkout and its
-submodules.
+Build out of the source tree, as above. CMake refuses a build inside it, which would leave CMake's files
+in the checkout and in the Capy and Corosio submodules.
 
 Release images are built without a local container engine on the cluster BuildKit lane. See
 [Image and releases](docs/image.md).

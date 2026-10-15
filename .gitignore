@@ -2,3 +2,25 @@ build/
 build-*/
 .cache/
 compile_commands.json
+
+# Output of an in-source build, which CMakeLists.txt refuses, left by older checkouts.
+/CMakeCache.txt
+/CMakeFiles/
+/Makefile
+/build.ninja
+/.ninja_*
+/cmake_install.cmake
+/CTestTestfile.cmake
+/install_manifest.txt
+/Testing/
+/generated/
+/*.a
+/zetta-tunnel
+/transport_test
+/tunnel_certificates
+/ingress_http_test
+/tunnel_config_test
+/egress_config_test
+/peer_config_test
+/mesh_config_test
+/mesh_netlink_test
