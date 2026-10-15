@@ -23,6 +23,14 @@ if(NOT DEFINED CMAKE_CXX_COMPILER AND NOT ZETTA_TUNNEL_USE_SYSTEM_COMPILER)
   endif()
 endif()
 
+# Build out of the source tree (cmake -S . -B build). An in-source build writes CMake's files into
+# this checkout and into the Capy and Corosio submodules, which no .gitignore here can hide.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+  message(FATAL_ERROR
+    "zetta-tunnel does not build in its source tree. Remove CMakeCache.txt and CMakeFiles/ here, then:\n"
+    "  cmake -S . -B build -G Ninja && cmake --build build && sudo cmake --install build")
+endif()
+
 project(zetta-tunnel
   VERSION 0.0.1
   DESCRIPTION "Orama's own tunnels, mesh and ingress network layer"
