@@ -32,7 +32,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 project(zetta-tunnel
-  VERSION 0.0.1
+  VERSION 0.1.0
   DESCRIPTION "Orama's own tunnels, mesh and ingress network layer"
   LANGUAGES CXX
 )
@@ -141,6 +141,9 @@ target_compile_options(zetta-tunnel PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 enable_testing()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+# A version is released only with its notes (docs/releases/vX.Y.Z.md, the org's release rule).
+add_test(NAME release_notes_exist_for_project_version
+  COMMAND ${CMAKE_COMMAND} -E cat ${CMAKE_CURRENT_SOURCE_DIR}/docs/releases/v${PROJECT_VERSION}.md)
 add_test(NAME version_reports_project_version COMMAND zetta-tunnel --version)
 set_tests_properties(version_reports_project_version PROPERTIES
   PASS_REGULAR_EXPRESSION "^zetta-tunnel ${PROJECT_VERSION}\n$")
