@@ -1,0 +1,8 @@
+[submodule "modules/capy"]
+	path = modules/capy
+	url = https://github.com/cppalliance/capy.git
+	branch = develop
+[submodule "modules/corosio"]
+	path = modules/corosio
+	url = git@github.com:oramasearch/corosio.git
+	branch = orama-main

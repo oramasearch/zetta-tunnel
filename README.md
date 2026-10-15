@@ -1,10 +1,13 @@
 # zetta-tunnel
 
-**zetta-tunnel is Orama's own tunnel**: a C++26 program that gives a developer, or another
-network, a narrow, authenticated path to one service, app or deployment inside an Orama workspace,
-without exposing it to the internet.
+**zetta-tunnel is Orama's own network layer**, in C++26. It does three things:
 
-The Orama operator manages tunnels as an abstract kind with a provider behind it, the way a
+- **Tunnels:** a developer, or another network, gets a narrow, authenticated path to one service,
+  app or deployment inside an Orama workspace, without exposing it to the internet.
+- **The mesh:** connections between workloads carry identity and mutual TLS.
+- **The ingress:** traffic enters a cluster through it, replacing ingress-nginx.
+
+The Orama operator manages each of these as an abstract kind with a provider behind it, the way a
 `KubernetesCluster` is backed by an `AksCluster`. zetta-tunnel is the provider Orama owns: it runs
 inside our clusters, inside a customer's own cluster, and with no internet access at all, and it is
 licensed so that Orama can sell it. Third-party tunnel services can sit behind the same kind as
@@ -12,11 +15,32 @@ other providers, where their terms allow.
 
 ## Status
 
-**Nothing is built yet.** The binary only reports its version. The design comes first, in the
-operator's secure-networking epic
+**The transport, developer tunnel, DNS-name egress, peer and ingress gateways, mesh node agent,
+and private amd64 image and release workflow are built.**
+`zetta-tunnel client`, `relay`, and `endpoint` provide grant-certificate authentication,
+one-target forwarding, live revocation/expiry and JSON-lines audit. `zetta-tunnel egress`
+authorizes workload source IPs, exact DNS names and ports from operator-projected rules, with HTTPS
+SNI and explicit other-TCP routing. `zetta-tunnel peer` exchanges only projected named services
+over mutual TLS, including when the two sites use identical private addresses.
+`zetta-tunnel ingress` terminates mounted cert-manager TLS and routes hosts/paths to Services,
+with body limits, unbuffered streaming, WebSockets, HTTP/2, reloads, probes and metrics.
+`zetta-tunnel mesh` installs fail-closed Linux namespace capture and carries exact workload
+identities over mutual TLS while Cilium remains the policy enforcer.
+`zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
+binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
+**Released as [v0.1.0](docs/releases/v0.1.0.md)** (2026-10-15): the private image
+`oramasearch/zetta-tunnel:v0.1.0` and portable tunnel clients for macOS arm64 and Linux amd64. The
+privileged Linux mesh proof passed on an AKS node. Ingress cluster deployment and the
+ingress-nginx load comparison are pending (orama-operator#473). The decided design is in
+the operator's secure-networking epic
 ([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
-([lake#724](https://github.com/oramasearch/lake/issues/724)). Private repository; proprietary to
-Orama.
+([lake#724](https://github.com/oramasearch/lake/issues/724)). How the roles fit together, and with Lake and the operator: [`docs/architecture.md`](docs/architecture.md).
+See
+[`docs/transport.md`](docs/transport.md), [`docs/tunnel.md`](docs/tunnel.md),
+[`docs/egress.md`](docs/egress.md), [`docs/peer.md`](docs/peer.md),
+[`docs/ingress.md`](docs/ingress.md), [`docs/mesh.md`](docs/mesh.md) and
+[`docs/image.md`](docs/image.md).
+Private repository; proprietary to Orama.
 
 ## Why it exists
 
@@ -37,31 +61,64 @@ The research behind it is in the operator repository,
 
 ## What it has to do
 
-From the epic and the research, to be settled in the design:
+From the epic and the decided design:
 
 - A developer authenticates as themselves and opens a tunnel to **one** service, app or deployment;
   nothing else in the workspace is reachable through it.
 - Access is granted, expires, is revoked, and is audited per person. Lake issues and shows it.
-- Traffic is encrypted end to end between the developer's machine and the tunnel's endpoint in the
-  cluster, and the endpoint's path into the workspace is a declared, narrow network policy.
+- Traffic uses mutual TLS from the developer's machine to the trusted relay and from the relay to
+  the endpoint. Application TLS may run inside it. The endpoint's path into the workspace is a
+  declared, narrow network policy.
 - It runs without any outside service, behind restricted Pod Security in the workspace.
 - Possibly, later: service-addressed links between clusters or to a customer's network, whose
   addresses overlap ours (every AKS cluster today uses `10.224.0.0/12`).
 
-**Open, for the design:** the transport (WireGuard through the OS kernel, QUIC, or TLS over
-Corosio as Zetta's node-to-node links already use), the relay, the client a developer installs,
-and how it authenticates.
+**As the mesh** (Steve, 2026-10-14: *"d7 and d8 are zetta-tunnel too"*):
+- Connections between workloads carry identity and mutual TLS, without changing the workloads,
+  which stay under restricted Pod Security with no `NET_ADMIN`.
+- It must fail closed: traffic that escapes capture escapes the policy. Istio ambient's CNI plugin
+  and ztunnel are the benchmark.
+- It runs beside AKS-managed Cilium, which stays the enforcer, as defence in depth.
+
+**As the ingress:**
+- Traffic enters a cluster through it. It terminates TLS with certificates cert-manager issues
+  ([orama-operator#457](https://github.com/oramasearch/orama-operator/issues/457)) and routes each
+  host to its Service, replacing ingress-nginx, which is retired upstream.
+
+**Decided and implemented:** TLS 1.3 over Corosio, Lake-issued grant certificates,
+operator-projected grant files and relay-enforced revocation, plus operator-projected DNS egress
+rules enforced by source, exact name and port. See the [tunnel contract](docs/tunnel.md) and
+[egress contract](docs/egress.md).
 
 ## Build and test
 
-C++26, CMake 3.28 or newer, and Clang 17 or newer (on macOS, Homebrew LLVM: `brew install llvm`).
+C++26, CMake 3.28 or newer, Clang 17 or newer, OpenSSL 3, nlohmann/json 3.12,
+pkg-config, libnghttp2 >= 1.61 and Python 3 for tests.
+See [build prerequisites and verification](docs/tunnel/testing.md).
 
 ```sh
 cmake -S . -B build -G Ninja
-cmake --build build
+cmake --build build -j 6
 ctest --test-dir build --output-on-failure
 ./build/zetta-tunnel --version
 ```
+
+Install the binary on your `PATH` (it is the only file installed; Capy and Corosio are linked in
+statically and install nothing):
+
+```sh
+sudo cmake --install build            # /usr/local/bin/zetta-tunnel
+cmake --install build --prefix ~/.local  # or ~/.local/bin/zetta-tunnel, without sudo
+```
+
+Build out of the source tree, as above. CMake refuses a build inside it, which would leave CMake's files
+in the checkout and in the Capy and Corosio submodules.
+
+Release images are built without a local container engine on the cluster BuildKit lane. See
+[Image and releases](docs/image.md).
+
+The build produces the `zetta_tunnel_transport` library. Set `BUILD_SHARED_LIBS=ON` for a shared
+library; the public header is [`include/zetta_tunnel/transport.hpp`](include/zetta_tunnel/transport.hpp).
 
 ## Where it sits
 

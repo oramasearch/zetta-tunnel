@@ -1,8 +1,20 @@
 # zetta-tunnel
 
-Orama's own tunnel, in C++26. Read [`README.md`](README.md) first: it says what this is, why it
-exists, and that nothing is built until the design in
-[orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided.
+Orama's own network layer, in C++26: tunnels, the mesh and the ingress. Read [`README.md`](README.md)
+first: it says what this is, why it exists, and which parts are built. The design in
+[orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided; the
+mutual TLS transport, developer tunnel roles, DNS-name egress, peer and ingress gateways, and the
+fail-closed mesh node agent are implemented. The private amd64 image and release workflow are
+implemented; the coordinator published `oramasearch/zetta-tunnel:dev-e522b9a`. Its Linux mesh proof
+failed at capture readiness; netlink corrections and startup diagnostics await the coordinator's
+rerun. The issue #3
+contract is in
+[`docs/tunnel.md`](docs/tunnel.md), issue #4 is in
+[`docs/egress.md`](docs/egress.md), issue #5 is in [`docs/peer.md`](docs/peer.md), and issue #6
+is in [`docs/ingress.md`](docs/ingress.md). Issue #7 is in [`docs/mesh.md`](docs/mesh.md), and issue
+#8 is in [`docs/image.md`](docs/image.md). Ingress
+deployment, the ingress-nginx comparison and the privileged Linux mesh proof are pending
+coordinator verification. JSON-lines audit is built; the Zetta writer is deferred to zetta#1281.
 
 The organisation's rules are in the umbrella bridge's `CLAUDE.md`
 (https://github.com/oramasearch/orama-bridge). The ones that apply here every day:
