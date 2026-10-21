@@ -3,6 +3,7 @@
 import concurrent.futures
 import contextlib
 import datetime
+import hashlib
 import http.client
 import json
 import os
@@ -99,10 +100,18 @@ class Harness:
         self.relay_health = self.port()
         lifetime = 6 if CASE == "expiry" else 300
         subprocess.run([CERTIFICATES, directory, str(lifetime)], check=True)
+        # The relay trusts the union of every customer's CA, as the operator projects it.
+        (self.directory / "customer-cas.pem").write_text(
+            (self.directory / "tunnel-ca.pem").read_text() + (self.directory / "tenant-ca.pem").read_text())
         self.expiry = ssl.cert_time_to_seconds(ssl._ssl._test_decode_cert(str(self.directory / "developer.pem"))["notAfter"])
         self.grant = {"id": GRANT, "workspace": "workspace-test", "endpoint": self.address(self.endpoint),
-                      "expires_at": datetime.datetime.fromtimestamp(self.expiry, datetime.timezone.utc).isoformat()}
+                      "expires_at": datetime.datetime.fromtimestamp(self.expiry, datetime.timezone.utc).isoformat(),
+                      "client_ca_sha256": [self.fingerprint("tunnel-ca")]}
         self.set_grants([self.grant])
+
+    def fingerprint(self, name):
+        der = ssl.PEM_cert_to_DER_cert((self.directory / f"{name}.pem").read_text())
+        return hashlib.sha256(der).hexdigest()
 
     def port(self):
         reservation = socket.socket()
@@ -145,7 +154,7 @@ class Harness:
                    listen=self.address(self.endpoint), health_listen=self.address(self.endpoint_health),
                    peer_name="relay.workload", target=target or self.address(self.echo.server_address[1]),
                    audit=str(self.directory / "endpoint.jsonl"))
-        self.relay_process = self.start("relay", stdout=relay_stdout, **self.tls_flags("relay", "tunnel-ca"),
+        self.relay_process = self.start("relay", stdout=relay_stdout, **self.tls_flags("relay", "customer-cas"),
                    listen=self.address(self.relay), health_listen=self.address(self.relay_health),
                    grants=str(self.directory / "grants.json"),
                    endpoint_cert=str(self.directory / f"{relay_workload}.pem"),
@@ -252,7 +261,7 @@ def expiry(test):
 
 
 def refusal(test):
-    names = {"expired_cert": "expired", "unknown_grant": "unknown", "wrong_ca": "other", "no_uri": "no-uri", "multiple_uri": "multiple-uri", "long_lived": "long-lived"}
+    names = {"expired_cert": "expired", "unknown_grant": "unknown", "wrong_ca": "other", "no_uri": "no-uri", "multiple_uri": "multiple-uri", "long_lived": "long-lived", "other_customer_ca": "tenant"}
     if CASE == "certificate_bound":
         test.grant["expires_at"] = datetime.datetime.fromtimestamp(test.expiry - 30, datetime.timezone.utc).isoformat()
         test.set_grants([test.grant])
@@ -269,6 +278,10 @@ def refusal(test):
     eventually(lambda: bool(test.records("refusal")))
     assert test.echo.accepted == 0
     assert test.records("refusal")[0]["bytes_up"] == 0
+    if CASE == "other_customer_ca":
+        # A certificate from another trusted customer CA names this grant and its expiry, and is
+        # still refused, because the grant is bound to its own customer's CA (LSR-074).
+        assert test.records("refusal")[0]["reason"] == "grant_issuer", test.records("refusal")
 
 
 def target_isolation(test):

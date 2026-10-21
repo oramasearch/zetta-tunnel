@@ -236,6 +236,16 @@ private:
     if (certificate.expires > grant->second.expires) {
       throw transport::Error("certificate_exceeds_grant");
     }
+    // The relay's --ca trusts every customer's CA. A grant is authorized only by a certificate
+    // whose verified chain runs through one of the CAs bound to that grant, so a customer that
+    // holds its own CA key cannot sign for another customer's grant (LSR-074).
+    const auto &allowed = grant->second.client_ca_sha256;
+    if (std::none_of(certificate.issuer_sha256.begin(), certificate.issuer_sha256.end(),
+                     [&allowed](const std::string &issuer) {
+                       return std::find(allowed.begin(), allowed.end(), issuer) != allowed.end();
+                     })) {
+      throw transport::Error("grant_issuer");
+    }
     session.grant = grant->second;
     session.record.workspace = grant->second.workspace;
     session.record.endpoint = grant->second.endpoint;
@@ -315,10 +325,10 @@ private:
         // Only fixed internal reasons from the transport path reach this field.
         const std::string_view reason(error.what());
         constexpr std::array reasons = {
-            "grant_absent",         "grant_expired",        "certificate_exceeds_grant",
-            "certificate_identity", "certificate_lifetime", "tls_peer_refused",
-            "upstream_connect",     "upstream_tls_refused", "unavailable",
-            "audit_unavailable"};
+            "grant_absent",     "grant_expired",        "certificate_exceeds_grant",
+            "grant_issuer",     "certificate_identity", "certificate_lifetime",
+            "tls_peer_refused", "upstream_connect",     "upstream_tls_refused",
+            "unavailable",      "audit_unavailable"};
         session->reason = std::find(reasons.begin(), reasons.end(), reason) != reasons.end()
                               ? reason
                               : "tls_configuration";

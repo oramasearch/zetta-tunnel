@@ -11,6 +11,9 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
+
+struct x509_st;
 
 namespace zetta_tunnel::tunnel {
 
@@ -26,6 +29,9 @@ struct Address {
 struct CertificateGrant {
   std::string id;
   Time expires;
+  // SHA-256 fingerprints of every CA certificate in the verified chain above the leaf, up to and
+  // including the trust anchor.
+  std::vector<std::string> issuer_sha256;
 };
 
 // Streaming TLS uses the same TLS 1.3/Corosio stack as the framed API.
@@ -52,6 +58,9 @@ capy::task<> connect(corosio::io_context &context, corosio::tcp_socket &socket,
                      const Address &address);
 std::string peer_address(const corosio::tcp_socket &socket);
 bool valid_uuid(std::string_view value);
+// Lowercase hex SHA-256 of a certificate's DER encoding, the form grants name their CAs in.
+std::string certificate_sha256(const x509_st *certificate);
+bool valid_sha256(std::string_view value);
 void validate_credentials(const transport::TlsFiles &files);
 
 } // namespace zetta_tunnel::tunnel

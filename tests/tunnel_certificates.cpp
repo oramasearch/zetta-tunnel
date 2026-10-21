@@ -87,6 +87,9 @@ int main(int argc, char **argv) {
     const auto server_ca = issue(directory, "server-ca", nullptr, "", 86400);
     const auto workload_ca = issue(directory, "workload-ca", nullptr, "", 86400);
     const auto other_ca = issue(directory, "other-ca", nullptr, "", 86400);
+    // A second customer's CA, trusted by the relay like every customer CA (the relay's --ca is the
+    // union), which must still never authorize a grant bound to tunnel-ca.
+    const auto tenant_ca = issue(directory, "tenant-ca", nullptr, "", 86400);
     issue(directory, "relay", &server_ca, "DNS:relay.test");
     issue(directory, "relay-workload", &workload_ca, "DNS:relay.workload");
     issue(directory, "endpoint", &workload_ca, "DNS:endpoint." + id);
@@ -97,6 +100,7 @@ int main(int argc, char **argv) {
     issue(directory, "unknown", &tunnel_ca,
           "URI:urn:orama:tunnel-grant:22222222-2222-4222-8222-222222222222");
     issue(directory, "other", &other_ca, uri);
+    issue(directory, "tenant", &tenant_ca, uri);
     issue(directory, "no-uri", &tunnel_ca, "DNS:developer.test");
     issue(directory, "multiple-uri", &tunnel_ca, uri + "," + uri);
     issue(directory, "long-lived", &tunnel_ca, uri, 86400);

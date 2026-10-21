@@ -51,27 +51,44 @@ void test_addresses() {
 }
 
 void test_grants(const std::filesystem::path &path) {
+  const std::string fingerprint(64, 'a');
+  const std::string upper(64, 'A');
   const std::string grant =
-      R"({"id":"11111111-1111-4111-8111-111111111111","workspace":"workspace-test","endpoint":"host:1234","expires_at":"2026-10-14T12:00:00Z"})";
+      R"({"id":"11111111-1111-4111-8111-111111111111","workspace":"workspace-test","endpoint":"host:1234","expires_at":"2026-10-14T12:00:00Z","client_ca_sha256":[")" +
+      fingerprint + R"("]})";
+  // A grant must name the customer CAs that may sign for it (LSR-074).
+  auto with_cas = [](const std::string &cas) {
+    return R"({"grants":[{"id":"11111111-1111-4111-8111-111111111111","workspace":"workspace-test","endpoint":"host:1234","expires_at":"2026-10-14T12:00:00Z")" +
+           cas + "}]}";
+  };
   auto write = [&path](const std::string &data) {
     std::ofstream file(path);
     file << data;
   };
   write("{\"grants\":[" + grant + "]}");
-  require(tunnel::read_grants(path).size() == 1);
+  const auto grants = tunnel::read_grants(path);
+  require(grants.size() == 1 &&
+          grants.begin()->second.client_ca_sha256 == std::vector<std::string>{fingerprint});
   write("{\"grants\":[]}");
   require(tunnel::read_grants(path).empty());
-  const std::vector<std::string> invalid = {"",
-                                            "null",
-                                            "[]",
-                                            "{}",
-                                            "{\"grants\":null}",
-                                            "{\"grants\":[{}]}",
-                                            "{\"grants\":[],\"grants\":[]}",
-                                            "{\"grants\":[],\"extra\":true}",
-                                            "{\"grants\":[" + grant + "," + grant + "]}",
-                                            "{\"grants\":[[[[[[[[[[[[]]]]]]]]]]]]}",
-                                            std::string(1024 * 1024 + 1, ' ')};
+  const std::vector<std::string> invalid = {
+      "",
+      "null",
+      "[]",
+      "{}",
+      "{\"grants\":null}",
+      "{\"grants\":[{}]}",
+      "{\"grants\":[],\"grants\":[]}",
+      "{\"grants\":[],\"extra\":true}",
+      "{\"grants\":[" + grant + "," + grant + "]}",
+      "{\"grants\":[[[[[[[[[[[[]]]]]]]]]]]]}",
+      std::string(1024 * 1024 + 1, ' '),
+      with_cas(""),
+      with_cas(R"(,"client_ca_sha256":[])"),
+      with_cas(R"(,"client_ca_sha256":")" + fingerprint + "\""),
+      with_cas(R"(,"client_ca_sha256":[")" + fingerprint.substr(1) + "\"]"),
+      with_cas(R"(,"client_ca_sha256":[")" + upper + "\"]"),
+      with_cas(R"(,"client_ca_sha256":[")" + fingerprint + "\",\"" + fingerprint + "\"]")};
   for (const auto &data : invalid) {
     write(data);
     refuses([&] {

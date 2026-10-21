@@ -225,14 +225,31 @@ std::map<std::string, Grant> read_grants(const std::filesystem::path &path) {
   }
   std::map<std::string, Grant> grants;
   for (const auto &value : document.at("grants")) {
-    if (!value.is_object() || value.size() != 4) {
+    if (!value.is_object() || value.size() != 5) {
       invalid("invalid grant fields");
     }
-    Grant grant{value.at("id").get<std::string>(), value.at("workspace").get<std::string>(),
+    Grant grant{value.at("id").get<std::string>(),
+                value.at("workspace").get<std::string>(),
                 value.at("endpoint").get<std::string>(),
-                parse_time(value.at("expires_at").get<std::string>())};
+                parse_time(value.at("expires_at").get<std::string>()),
+                {}};
     if (!valid_uuid(grant.id) || !workspace_name(grant.workspace)) {
       invalid("invalid grant identity or workspace");
+    }
+    // Every grant names the customer CAs that may sign for it; a grant without one authorizes
+    // nobody, so the whole snapshot is refused rather than trusting any CA in the relay's bundle.
+    const auto &cas = value.at("client_ca_sha256");
+    if (!cas.is_array() || cas.empty() || cas.size() > 16) {
+      invalid("invalid grant client CA fingerprints");
+    }
+    for (const auto &ca : cas) {
+      const auto fingerprint = ca.get<std::string>();
+      if (!valid_sha256(fingerprint) ||
+          std::find(grant.client_ca_sha256.begin(), grant.client_ca_sha256.end(), fingerprint) !=
+              grant.client_ca_sha256.end()) {
+        invalid("invalid grant client CA fingerprints");
+      }
+      grant.client_ca_sha256.push_back(fingerprint);
     }
     static_cast<void>(parse_address(grant.endpoint));
     if (!grants.emplace(grant.id, grant).second) {
