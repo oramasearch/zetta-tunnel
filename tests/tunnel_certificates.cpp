@@ -105,6 +105,7 @@ int main(int argc, char **argv) {
     issue(directory, "wrong-peer", &workload_ca, "DNS:wrong-peer.test");
     issue(directory, "mesh-source", &workload_ca, "DNS:source.workspace.test");
     issue(directory, "mesh-destination", &workload_ca, "DNS:destination.workspace.test");
+    issue(directory, "mesh-noisy", &workload_ca, "DNS:noisy.workspace.test");
     for (const auto *host : {"lake", "apps", "dashboard", "engine", "zetta", "backend"}) {
       issue(directory, host, &server_ca, "DNS:" + std::string(host) + ".test");
     }

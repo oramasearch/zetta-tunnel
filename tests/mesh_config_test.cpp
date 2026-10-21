@@ -42,6 +42,21 @@ void test_configuration(const std::filesystem::path &path) {
   require(configuration.workloads.front().routes.front().destination == "10.1.0.20:8080");
   require(configuration.workloads.front().ports.front().sources.front() ==
           "frontend.workspace.test");
+  // A reload keeps a running workload only when nothing about it changed (LSR-178).
+  const auto &workload = configuration.workloads.front();
+  require(mesh::same_workload(workload, workload));
+  auto changed = workload;
+  changed.routes.front().identity = "other.workspace.test";
+  require(!mesh::same_workload(workload, changed));
+  changed = workload;
+  changed.tls.private_key = "rotated.key";
+  require(!mesh::same_workload(workload, changed));
+  changed = workload;
+  changed.network_namespace = "/proc/456/ns/net";
+  require(!mesh::same_workload(workload, changed));
+  changed = workload;
+  changed.ports.front().sources.push_back("extra.workspace.test");
+  require(!mesh::same_workload(workload, changed));
   const std::vector<std::string> invalid = {
       "",
       "null",
@@ -72,10 +87,27 @@ void test_flags() {
   const std::vector<std::string> base = {"mesh", "--configuration", "mesh.json"};
   require(parse(base).max_sessions == 128);
   require(parse(base).setup_timeout == 10);
+  require(parse(base).idle_timeout == 900);
+  require(parse(base).max_workload_sessions == 128);
+  {
+    auto values = base;
+    values.insert(values.end(), {"--max-sessions", "64", "--max-workload-sessions", "16",
+                                 "--idle-timeout", "60"});
+    const auto options = parse(values);
+    require(options.max_sessions == 64 && options.max_workload_sessions == 16 &&
+            options.idle_timeout == 60);
+    values = base;
+    values.insert(values.end(), {"--max-sessions", "64"});
+    require(parse(values).max_workload_sessions == 64);
+  }
   for (const auto &extra :
        std::vector<std::vector<std::string>>{{"--configuration", "again"},
                                              {"--max-sessions", "0"},
                                              {"--setup-timeout", "61"},
+                                             {"--max-workload-sessions", "0"},
+                                             {"--max-workload-sessions", "129"},
+                                             {"--idle-timeout", "0"},
+                                             {"--idle-timeout", "86401"},
                                              {"--health-listen", "health.test:8080"},
                                              {"--unknown", "value"}}) {
     auto values = base;

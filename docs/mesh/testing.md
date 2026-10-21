@@ -1,6 +1,8 @@
 # Mesh verification
 
-The native repository suite validates the exact projection schema, duplicate rejection, file and
+The native repository suite validates the per-workload session quotas (`mesh_session_quotas`: one
+workload holding every session it can still leaves each other workload its guarantee, LSR-177), the
+exact projection schema, duplicate rejection, file and
 collection bounds, numeric-address requirements, target-port preservation, role flags, production
 netlink wire layouts/ACK handling, safe failure diagnostics and all
 existing transport/tunnel/egress/peer/ingress regressions on macOS and Linux.
@@ -18,9 +20,15 @@ sudo env ZETTA_MESH_PRIVILEGED_TEST=1 \
 Without that environment variable or root, CTest reports the case skipped. The privileged case
 proves:
 
-- malformed and missing projections, a missing namespace, a missing TLS key and an occupied
-  capture listener each report their operation/error and keep readiness false; restoring valid
-  inputs restores readiness without removing capture;
+- malformed and missing projections each report their operation/error and keep readiness false;
+  restoring valid inputs restores readiness without removing capture;
+- a missing namespace, a missing TLS key and an occupied capture listener each report their
+  operation/error and fail only that workload (`zetta_mesh_workloads_failed`), while the other
+  workload keeps serving; releasing the occupied port lets the retry bring the workload back;
+- a tenant namespace already listening on 15008 when it is enrolled fails only its own workload: a
+  live session between two other workloads survives the reload and new connections still pass
+  (LSR-178);
+- an established session idle past `--idle-timeout` ends and frees its slot (LSR-177);
 - capture is installed before the simulated application starts;
 - an exact declared source reaches an exact destination through real TLS 1.3;
 - inbound and outbound allow records exist before application data passes;

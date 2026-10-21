@@ -1,5 +1,6 @@
 #include "mesh.hpp"
 #include "mesh_netlink.hpp"
+#include "mesh_sessions.hpp"
 
 #include "peer.hpp"
 #include "tunnel.hpp"
@@ -479,18 +480,36 @@ void send_all(int socket, const char *data, std::size_t size) {
   }
 }
 
-void forward(int plain, SSL *secure) {
+// Copies both directions until either side closes, or until neither moves a byte for
+// `idle_seconds`, so an idle session cannot hold its slot forever (LSR-177).
+void forward(int plain, SSL *secure, unsigned idle_seconds) {
   std::array<char, 16384> buffer{};
   const int tls_socket = SSL_get_fd(secure);
+  const auto idle = std::chrono::seconds(idle_seconds);
+  auto last_activity = std::chrono::steady_clock::now();
   while (!stopping) {
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+        last_activity + idle - std::chrono::steady_clock::now());
+    if (remaining.count() <= 0) {
+      break;
+    }
     std::array<pollfd, 2> descriptors{{{plain, POLLIN, 0}, {tls_socket, POLLIN, 0}}};
-    const int result = ::poll(descriptors.data(), descriptors.size(), -1);
+    // Decrypted bytes OpenSSL already holds do not make the socket readable.
+    const int timeout = SSL_pending(secure) > 0 ? 0 : static_cast<int>(remaining.count());
+    const int result = ::poll(descriptors.data(), descriptors.size(), timeout);
     if (result < 0 && errno == EINTR) {
       continue;
     }
-    if (result <= 0) {
+    if (result < 0) {
       break;
     }
+    if (SSL_pending(secure) > 0) {
+      descriptors[1].revents |= POLLIN;
+    }
+    if (result == 0 && (descriptors[1].revents & POLLIN) == 0) {
+      continue;
+    }
+    last_activity = std::chrono::steady_clock::now();
     if (descriptors[0].revents & POLLIN) {
       const auto size = ::recv(plain, buffer.data(), buffer.size(), 0);
       if (size <= 0) {
@@ -544,6 +563,8 @@ private:
 
 struct Runtime {
   Workload workload;
+  // Names this runtime in the session pool and the session registry.
+  std::uint64_t key = 0;
   FileDescriptor outbound;
   FileDescriptor inbound;
   std::jthread outbound_thread;
@@ -552,11 +573,13 @@ struct Runtime {
 
 class Agent {
 public:
-  explicit Agent(Options options) : options_(std::move(options)), audit_(options_.audit) {
+  explicit Agent(Options options)
+      : options_(std::move(options)), audit_(options_.audit),
+        pool_(options_.max_sessions, options_.max_workload_sessions) {
   }
 
   ~Agent() {
-    close_runtime();
+    close_runtimes();
     close_sessions();
     wait_for_sessions();
     ::shutdown(health_socket_.get(), SHUT_RDWR);
@@ -569,10 +592,14 @@ public:
     health_thread_ = std::jthread([this] {
       health_loop();
     });
-    reload(true);
+    reload();
+    auto next_retry = std::chrono::steady_clock::now() + 2s;
     while (!stopping) {
       if (reloading || changed()) {
-        reload(true);
+        reload();
+      } else if (!failed_.empty() && std::chrono::steady_clock::now() >= next_retry) {
+        retry_failed();
+        next_retry = std::chrono::steady_clock::now() + 2s;
       }
       if (!audit_ok_) {
         ready_ = false;
@@ -581,7 +608,7 @@ public:
       std::this_thread::sleep_for(250ms);
     }
     ready_ = false;
-    close_runtime();
+    close_runtimes();
     close_sessions();
     wait_for_sessions();
   }
@@ -616,109 +643,234 @@ private:
     }
   }
 
-  void reload(bool) {
+  // Applies a projection. Workloads that are unchanged keep their listeners and sessions; only
+  // removed or changed workloads are closed. A workload whose TLS, capture or listeners cannot be
+  // set up fails alone: it is reported, keeps its capture rules (so its traffic is refused), and is
+  // retried every two seconds, while every other workload on the node keeps serving (LSR-178).
+  void reload() {
     reloading = 0;
-    ready_ = false;
-    close_runtime();
-    close_sessions();
-    wait_for_sessions();
-    std::string step = "projection read/validation";
+    std::optional<Configuration> configuration;
     try {
-      auto configuration = read_configuration(options_.configuration);
-      std::vector<std::shared_ptr<Runtime>> replacement;
-      for (const auto &workload : configuration.workloads) {
-        const auto context = "workload[" + std::to_string(replacement.size()) + "] ";
-        step = context + "TLS validation";
-        static_cast<void>(tls_context(workload.tls));
-        step = context + "capture installation";
-        install_capture(workload.network_namespace);
-        auto runtime = std::make_shared<Runtime>();
-        runtime->workload = workload;
-        step = context + "outbound listener 127.0.0.1:15001";
-        runtime->outbound.reset(listener(workload.network_namespace, "127.0.0.1", outbound_port));
-        step = context + "inbound listener 0.0.0.0:15008";
-        runtime->inbound.reset(listener(workload.network_namespace, "0.0.0.0", inbound_port));
-        replacement.push_back(std::move(runtime));
-      }
-      step = "capture listener threads";
-      configuration_ = std::move(configuration);
-      runtimes_ = std::move(replacement);
-      for (const auto &runtime : runtimes_) {
-        auto *value = runtime.get();
-        runtime->outbound_thread = std::jthread([this, value] {
-          accept_loop(value, true);
-        });
-        runtime->inbound_thread = std::jthread([this, value] {
-          accept_loop(value, false);
-        });
-      }
-      step = "projection modification time";
+      configuration = read_configuration(options_.configuration);
       modified_ = std::filesystem::last_write_time(options_.configuration);
-      step = "projection file size";
       size_ = std::filesystem::file_size(options_.configuration);
-      ++reloads_;
-      ready_ = audit_ok_.load();
     } catch (const std::exception &error) {
-      reload_failed(step, failure_detail(error));
+      reload_failed("projection read/validation", failure_detail(error));
+      return;
     } catch (...) {
-      reload_failed(step, "unknown exception");
+      reload_failed("projection read/validation", "unknown exception");
+      return;
     }
+    std::vector<std::shared_ptr<Runtime>> kept;
+    for (const auto &runtime : runtimes_) {
+      const bool present =
+          std::ranges::any_of(configuration->workloads, [&](const Workload &value) {
+            return same_workload(value, runtime->workload);
+          });
+      bool usable = present;
+      if (present) {
+        try {
+          static_cast<void>(tls_context(runtime->workload.tls));
+        } catch (...) {
+          usable = false;
+        }
+      }
+      if (usable) {
+        kept.push_back(runtime);
+      } else {
+        close_runtime(*runtime);
+      }
+    }
+    runtimes_ = std::move(kept);
+    failed_.clear();
+    set_node(configuration->node);
+    std::vector<std::shared_ptr<Runtime>> started;
+    for (std::size_t index = 0; index < configuration->workloads.size(); ++index) {
+      const auto &workload = configuration->workloads[index];
+      const bool running = std::ranges::any_of(runtimes_, [&](const auto &runtime) {
+        return same_workload(runtime->workload, workload);
+      });
+      if (running) {
+        continue;
+      }
+      if (auto runtime = build_runtime(workload, index)) {
+        started.push_back(std::move(runtime));
+      } else {
+        failed_.push_back({index, workload});
+      }
+    }
+    runtimes_.insert(runtimes_.end(), started.begin(), started.end());
+    publish_workloads();
+    for (const auto &runtime : started) {
+      start_runtime(runtime);
+    }
+    ++reloads_;
+    ready_ = audit_ok_.load();
+  }
+
+  void retry_failed() {
+    std::vector<std::pair<std::size_t, Workload>> still_failed;
+    std::vector<std::shared_ptr<Runtime>> started;
+    for (const auto &[index, workload] : failed_) {
+      if (auto runtime = build_runtime(workload, index)) {
+        started.push_back(std::move(runtime));
+      } else {
+        still_failed.emplace_back(index, workload);
+      }
+    }
+    failed_ = std::move(still_failed);
+    if (started.empty()) {
+      return;
+    }
+    runtimes_.insert(runtimes_.end(), started.begin(), started.end());
+    publish_workloads();
+    for (const auto &runtime : started) {
+      start_runtime(runtime);
+    }
+  }
+
+  // Validates TLS, installs capture and binds both listeners for one workload. Returns null, after
+  // reporting the failing step, when any of them fails; nothing else on the node is touched.
+  std::shared_ptr<Runtime> build_runtime(const Workload &workload, std::size_t index) {
+    const auto context = "workload[" + std::to_string(index) + "] ";
+    std::string step = context + "TLS validation";
+    try {
+      static_cast<void>(tls_context(workload.tls));
+      step = context + "capture installation";
+      install_capture(workload.network_namespace);
+      auto runtime = std::make_shared<Runtime>();
+      runtime->workload = workload;
+      runtime->key = ++next_key_;
+      step = context + "outbound listener 127.0.0.1:15001";
+      runtime->outbound.reset(listener(workload.network_namespace, "127.0.0.1", outbound_port));
+      step = context + "inbound listener 0.0.0.0:15008";
+      runtime->inbound.reset(listener(workload.network_namespace, "0.0.0.0", inbound_port));
+      return runtime;
+    } catch (const std::exception &error) {
+      workload_failed(step, failure_detail(error));
+    } catch (...) {
+      workload_failed(step, "unknown exception");
+    }
+    return nullptr;
+  }
+
+  void start_runtime(const std::shared_ptr<Runtime> &runtime) {
+    auto *value = runtime.get();
+    runtime->outbound_thread = std::jthread([this, value] {
+      accept_loop(value, true);
+    });
+    runtime->inbound_thread = std::jthread([this, value] {
+      accept_loop(value, false);
+    });
+  }
+
+  void publish_workloads() {
+    std::set<std::uint64_t> keys;
+    for (const auto &runtime : runtimes_) {
+      keys.insert(runtime->key);
+    }
+    pool_.set_workloads(keys);
+    workloads_serving_ = runtimes_.size();
+    workloads_failed_ = failed_.size();
+  }
+
+  void workload_failed(std::string_view step, std::string_view detail) {
+    ++workload_failures_;
+    std::cerr << "zetta-tunnel: mesh stage=" << step << ": " << detail
+              << "; refusing traffic for this workload\n";
   }
 
   void reload_failed(std::string_view step, std::string_view detail) {
     ready_ = false;
-    close_runtime();
+    close_runtimes();
     close_sessions();
     wait_for_sessions();
-    configuration_.reset();
+    failed_.clear();
+    workloads_failed_ = 0;
     ++reload_failures_;
     std::cerr << "zetta-tunnel: mesh stage=" << step << ": " << detail << "; refusing traffic\n";
   }
 
-  void close_runtime() {
+  // Closes one workload's listeners and its sessions, and waits for those sessions to end.
+  void close_runtime(Runtime &runtime) {
+    ::shutdown(runtime.outbound.get(), SHUT_RDWR);
+    ::shutdown(runtime.inbound.get(), SHUT_RDWR);
+    runtime.outbound.reset();
+    runtime.inbound.reset();
+    runtime.outbound_thread.request_stop();
+    runtime.inbound_thread.request_stop();
+    close_sessions(runtime.key);
+    while (pool_.in_use(runtime.key) != 0) {
+      std::this_thread::sleep_for(10ms);
+    }
+  }
+
+  void close_runtimes() {
     for (const auto &runtime : runtimes_) {
-      ::shutdown(runtime->outbound.get(), SHUT_RDWR);
-      ::shutdown(runtime->inbound.get(), SHUT_RDWR);
-      runtime->outbound.reset();
-      runtime->inbound.reset();
-      runtime->outbound_thread.request_stop();
-      runtime->inbound_thread.request_stop();
+      close_runtime(*runtime);
     }
     runtimes_.clear();
+    publish_workloads();
   }
 
-  bool reserve_session(int socket) {
-    auto count = sessions_.load();
-    while (count < options_.max_sessions) {
-      if (sessions_.compare_exchange_weak(count, count + 1)) {
-        const std::lock_guard lock(session_mutex_);
-        session_sockets_.insert(socket);
-        return true;
-      }
+  bool reserve_session(std::uint64_t key, int socket) {
+    if (!pool_.reserve(key)) {
+      ++capacity_denials_;
+      return false;
     }
-    ++capacity_denials_;
-    return false;
+    const std::lock_guard lock(session_mutex_);
+    session_sockets_[key].insert(socket);
+    return true;
   }
 
-  void release_session(int socket) {
+  void release_session(std::uint64_t key, int socket) {
     {
       const std::lock_guard lock(session_mutex_);
-      session_sockets_.erase(socket);
+      const auto found = session_sockets_.find(key);
+      if (found != session_sockets_.end()) {
+        found->second.erase(socket);
+        if (found->second.empty()) {
+          session_sockets_.erase(found);
+        }
+      }
     }
-    --sessions_;
+    pool_.release(key);
   }
 
   void close_sessions() {
     const std::lock_guard lock(session_mutex_);
-    for (const int socket : session_sockets_) {
+    for (const auto &[key, sockets] : session_sockets_) {
+      for (const int socket : sockets) {
+        ::shutdown(socket, SHUT_RDWR);
+      }
+    }
+  }
+
+  void close_sessions(std::uint64_t key) {
+    const std::lock_guard lock(session_mutex_);
+    const auto found = session_sockets_.find(key);
+    if (found == session_sockets_.end()) {
+      return;
+    }
+    for (const int socket : found->second) {
       ::shutdown(socket, SHUT_RDWR);
     }
   }
 
   void wait_for_sessions() const {
-    while (sessions_.load() != 0) {
+    while (pool_.in_use() != 0) {
       std::this_thread::sleep_for(10ms);
     }
+  }
+
+  void set_node(const std::string &node) {
+    const std::lock_guard lock(node_mutex_);
+    node_ = node;
+  }
+
+  std::string node() const {
+    const std::lock_guard lock(node_mutex_);
+    return node_;
   }
 
   void accept_loop(Runtime *runtime, bool outbound) {
@@ -731,12 +883,13 @@ private:
         }
         break;
       }
-      if (!reserve_session(accepted)) {
+      const auto key = runtime->key;
+      if (!reserve_session(key, accepted)) {
         ::close(accepted);
         continue;
       }
       const auto workload = runtime->workload;
-      std::thread([this, accepted, workload, outbound] {
+      std::thread([this, accepted, key, workload, outbound] {
         FileDescriptor incoming(accepted);
         try {
           socket_timeout(accepted, options_.setup_timeout);
@@ -749,7 +902,7 @@ private:
           static_cast<void>(record("deny", "session_failure", workload, "", "", 0,
                                    outbound ? "outbound" : "inbound"));
         }
-        release_session(accepted);
+        release_session(key, accepted);
       }).detach();
     }
   }
@@ -762,7 +915,7 @@ private:
         {"event", "mesh_decision"},
         {"role", "mesh"},
         {"timestamp", tunnel::format_time(std::chrono::system_clock::now())},
-        {"node", configuration_ ? configuration_->node : ""},
+        {"node", node()},
         {"workload", workload.identity},
         {"peer", peer},
         {"destination", destination},
@@ -809,9 +962,9 @@ private:
                 destination_address.port, "outbound")) {
       return;
     }
-    socket_timeout(incoming, 0);
-    socket_timeout(remote.get(), 0);
-    forward(incoming, secure.get());
+    socket_timeout(incoming, options_.idle_timeout);
+    socket_timeout(remote.get(), options_.idle_timeout);
+    forward(incoming, secure.get(), options_.idle_timeout);
   }
 
   void inbound_session(const Workload &workload, int incoming) {
@@ -848,14 +1001,24 @@ private:
       return;
     }
     ssl_write_all(secure.get(), "ZTMA1\n");
-    socket_timeout(incoming, 0);
-    socket_timeout(target.get(), 0);
-    forward(target.get(), secure.get());
+    socket_timeout(incoming, options_.idle_timeout);
+    socket_timeout(target.get(), options_.idle_timeout);
+    forward(target.get(), secure.get(), options_.idle_timeout);
   }
 
   std::string metrics() const {
     return "# TYPE zetta_mesh_sessions gauge\nzetta_mesh_sessions " +
-           std::to_string(sessions_.load()) +
+           std::to_string(pool_.in_use()) +
+           "\n# TYPE zetta_mesh_workload_session_guarantee "
+           "gauge\nzetta_mesh_workload_session_guarantee " +
+           std::to_string(pool_.guaranteed()) +
+           "\n# TYPE zetta_mesh_workloads gauge\nzetta_mesh_workloads " +
+           std::to_string(workloads_serving_.load()) +
+           "\n# TYPE zetta_mesh_workloads_failed gauge\nzetta_mesh_workloads_failed " +
+           std::to_string(workloads_failed_.load()) +
+           "\n# TYPE zetta_mesh_workload_failures_total "
+           "counter\nzetta_mesh_workload_failures_total " +
+           std::to_string(workload_failures_.load()) +
            "\n# TYPE zetta_mesh_allows_total counter\nzetta_mesh_allows_total " +
            std::to_string(allows_.load()) +
            "\n# TYPE zetta_mesh_denials_total counter\nzetta_mesh_denials_total " +
@@ -915,15 +1078,22 @@ private:
 
   Options options_;
   Audit audit_;
-  std::optional<Configuration> configuration_;
   std::vector<std::shared_ptr<Runtime>> runtimes_;
+  // Projected workloads that could not be set up, with their projection index, retried in turn.
+  std::vector<std::pair<std::size_t, Workload>> failed_;
+  std::uint64_t next_key_ = 0;
+  mutable std::mutex node_mutex_;
+  std::string node_;
   std::filesystem::file_time_type modified_{};
   std::uintmax_t size_ = 0;
   FileDescriptor health_socket_;
   std::jthread health_thread_;
+  SessionPool pool_;
   std::mutex session_mutex_;
-  std::set<int> session_sockets_;
-  std::atomic<std::size_t> sessions_ = 0;
+  std::map<std::uint64_t, std::set<int>> session_sockets_;
+  std::atomic<std::size_t> workloads_serving_ = 0;
+  std::atomic<std::size_t> workloads_failed_ = 0;
+  std::atomic<std::uint64_t> workload_failures_ = 0;
   std::atomic<std::uint64_t> allows_ = 0;
   std::atomic<std::uint64_t> denials_ = 0;
   std::atomic<std::uint64_t> capacity_denials_ = 0;

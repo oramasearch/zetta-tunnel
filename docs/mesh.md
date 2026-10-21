@@ -99,9 +99,24 @@ identities are invalid.
 The file limit is 1 MiB, with at most 128 workloads, 256 routes per workload, 256 inbound ports per
 workload, 256 source identities per port and ten JSON nesting levels. An empty workload array is a
 valid ready node with no enrolled pods. The agent checks replacement metadata four times per second;
-SIGHUP forces a reload. Reload closes active sessions and listeners before applying the complete
-replacement. A missing, unreadable or invalid projection fails readiness and leaves capture rules
-in place.
+SIGHUP forces a reload. A reload keeps every workload whose entry is unchanged, with its listeners
+and live sessions, and closes only workloads that were removed or changed (any field, including
+TLS paths) before setting them up again. A missing, unreadable or invalid projection fails
+readiness, closes every listener and session, and leaves capture rules in place.
+
+### One workload's failure is its own
+
+Setting up a workload (TLS validation, namespace capture, the two listeners) can fail for reasons
+that belong to that workload alone; a tenant can, for example, already be listening on 15001 or
+15008 in its own namespace. Such a failure affects only that workload (LSR-178,
+[#30](https://github.com/oramasearch/zetta-tunnel/issues/30)):
+
+- the agent writes one diagnostic line ending `refusing traffic for this workload`;
+- that workload's capture rules stay installed if they were installed, so its traffic is refused;
+- every other workload keeps its listeners and sessions, and the node stays ready;
+- the agent retries the failed workload every two seconds, so it comes up once the port is free,
+  without a new projection;
+- `zetta_mesh_workloads_failed` counts the workloads currently failing.
 
 ## Mesh protocol and certificates
 
@@ -138,24 +153,47 @@ missing-value and other-role flags fail startup.
 | `--configuration FILE` | Required operator projection |
 | `--health-listen IP:PORT` | Host-network plain HTTP probes and metrics; `127.0.0.1:8080` |
 | `--audit FILE` | Append JSON lines; `-` writes stdout and is the default |
-| `--max-sessions N` | Combined inbound/outbound limit; `128`, range 1–4096 |
+| `--max-sessions N` | Combined inbound/outbound limit for the node; `128`, range 1–4096 |
+| `--max-workload-sessions N` | Most sessions one workload may hold; defaults to `--max-sessions`, range 1 to `--max-sessions` |
 | `--setup-timeout N` | Connect, TLS and preface deadline in seconds; `10`, range 1–60 |
+| `--idle-timeout N` | An established session that moves no bytes in either direction for this many seconds ends; `900`, range 1–86400 |
 
 Inside every enrolled pod namespace, TCP 15001 is the loopback-only outbound capture port and TCP
 15008 is the mutual-TLS inbound port. Neither is configurable, so operator policy and probes have a
 stable contract. Port 15001 must never be exposed outside the namespace. Port 15008 is reachable
 only from source pods named by declared connections.
 
-`GET /healthz` returns 200 while the host listener responds. `GET /readyz` returns 200 only while
-the complete projection, all namespace capture/listeners, certificates and audit sink are usable.
+`GET /healthz` returns 200 while the host listener responds. `GET /readyz` returns 200 while the
+projection is valid and applied and the audit sink is usable. A workload that cannot be set up does
+not fail the node (see *One workload's failure is its own*); `zetta_mesh_workloads_failed` reports
+it.
 `GET /metrics` returns Prometheus text. Other paths return 404. The host-network probe listener must
 remain private to the platform.
 
-Metrics are `zetta_mesh_sessions`, `zetta_mesh_allows_total`, `zetta_mesh_denials_total`,
-`zetta_mesh_capacity_denials_total`, `zetta_mesh_reloads_total` and
-`zetta_mesh_reload_failures_total`. Session capacity is global. Each session uses one 16 KiB copy
+Metrics are `zetta_mesh_sessions`, `zetta_mesh_workload_session_guarantee`, `zetta_mesh_workloads`
+(serving), `zetta_mesh_workloads_failed`, `zetta_mesh_workload_failures_total`,
+`zetta_mesh_allows_total`, `zetta_mesh_denials_total`, `zetta_mesh_capacity_denials_total`,
+`zetta_mesh_reloads_total` and `zetta_mesh_reload_failures_total`. Each session uses one 16 KiB copy
 buffer and one detached worker; overflow closes the accepted socket while probes remain responsive.
 SIGINT and SIGTERM close listeners and sessions but do not remove namespace capture.
+
+### Session capacity is shared fairly
+
+`--max-sessions` is the node's total, but no workload can take another's share (LSR-177,
+[#29](https://github.com/oramasearch/zetta-tunnel/issues/29)):
+
+- each serving workload is guaranteed `min(--max-workload-sessions, --max-sessions / workloads)`
+  sessions (`zetta_mesh_workload_session_guarantee`);
+- a workload may open a session only while what remains still covers every other workload's unused
+  guarantee, and never more than `--max-workload-sessions`;
+- capacity nobody has claimed is shared first come, first served;
+- a session counts against the workload whose listener accepted it: outbound against the source,
+  inbound against the destination;
+- an established session idle in both directions for `--idle-timeout` seconds ends, and socket
+  reads and writes are bounded by the same time, so an idle or stalled peer cannot hold a slot
+  forever.
+
+The implementation is `SessionPool` in `src/mesh_sessions.hpp`, tested by `mesh_session_quotas`.
 
 ## Decision records
 
@@ -182,6 +220,7 @@ codes without certificate, key, file contents or OpenSSL error-data strings.
 
 Malformed JSON reports only its error ID and byte position, never the input snippet. Filesystem
 errors omit configured paths. Control characters are replaced and diagnostic detail is bounded.
-Readiness remains 503, listeners and sessions close, and installed capture stays in place on any
-reload failure. Startup failures before the probe listener opens exit with status 2 and a diagnostic.
+A projection that cannot be read or validated makes readiness 503 and closes every listener and
+session; a single workload's failure closes only that workload. Installed capture stays in place in
+both cases. Startup failures before the probe listener opens exit with status 2 and a diagnostic.
 See [netlink and diagnostics](mesh/netlink.md) for examples, wire contracts and troubleshooting.

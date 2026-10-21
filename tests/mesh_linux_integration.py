@@ -57,6 +57,7 @@ class Harness:
         self.source = "zts" + self.suffix[-8:]
         self.destination = "ztd" + self.suffix[-8:]
         self.rogue = "ztr" + self.suffix[-8:]
+        self.noisy = "ztn" + self.suffix[-8:]
         self.processes = []
         self.health_port = reserve_port()
         command(CERTIFICATES, directory, "300")
@@ -70,6 +71,7 @@ class Harness:
         self.add_namespace(self.source, "10.203.0.2", "zsh" + self.suffix[-7:])
         self.add_namespace(self.destination, "10.203.0.3", "zdh" + self.suffix[-7:])
         self.add_namespace(self.rogue, "10.203.0.4", "zrh" + self.suffix[-7:])
+        self.add_namespace(self.noisy, "10.203.0.5", "znh" + self.suffix[-7:])
 
     def add_namespace(self, name, address, host_link):
         command("ip", "netns", "add", name)
@@ -79,6 +81,13 @@ class Harness:
         command("ip", "-n", name, "link", "set", "lo", "up")
         command("ip", "-n", name, "link", "set", "eth0", "up")
         command("ip", "-n", name, "addr", "add", address + "/24", "dev", "eth0")
+
+    def tls(self, name):
+        return {
+            "certificate": str(self.directory / f"{name}.pem"),
+            "key": str(self.directory / f"{name}.key"),
+            "ca": str(self.directory / "workload-ca.pem"),
+        }
 
     def write_configuration(self):
         tls = lambda name: {
@@ -131,7 +140,7 @@ class Harness:
     def restore_configuration(self):
         self.write_raw_configuration(json.dumps(self.configuration))
 
-    def start_agent(self, ready=True):
+    def start_agent(self, ready=True, extra=()):
         log = open(self.directory / f"agent-{len(self.processes)}.log", "w+")
         process = subprocess.Popen(
             [
@@ -145,6 +154,7 @@ class Harness:
                 str(self.directory / "audit.jsonl"),
                 "--max-sessions",
                 "8",
+                *extra,
             ],
             stdout=log,
             stderr=log,
@@ -152,6 +162,12 @@ class Harness:
         self.processes.append((process, log))
         eventually(lambda: self.probe("/readyz")[0] == (200 if ready else 503))
         return process
+
+    def metric(self, name):
+        for line in self.probe("/metrics")[1].splitlines():
+            if line.startswith(name + " "):
+                return int(line.split()[1])
+        raise AssertionError(f"metric {name} missing")
 
     def diagnostic(self, text):
         return any(text in path.read_text() for path in self.directory.glob("agent-*.log"))
@@ -168,14 +184,16 @@ class Harness:
         self.configuration["mesh"]["workloads"][0]["network_namespace"] = str(self.directory / "absent-netns")
         self.restore_configuration()
         eventually(lambda: self.diagnostic("open workload network namespace: errno=2"))
-        assert self.probe("/readyz")[0] == 503
+        # One workload's failure is that workload's alone (LSR-178): the projection still applies.
+        assert self.metric("zetta_mesh_workloads_failed") == 1
+        assert self.metric("zetta_mesh_workloads") == 1
 
         self.configuration["mesh"]["workloads"][0]["network_namespace"] = f"/var/run/netns/{self.source}"
         key = self.configuration["mesh"]["workloads"][0]["tls"]["key"]
         self.configuration["mesh"]["workloads"][0]["tls"]["key"] = str(self.directory / "absent-key")
         self.restore_configuration()
         eventually(lambda: self.diagnostic("load mesh private key: openssl_error="))
-        assert self.probe("/readyz")[0] == 503
+        assert self.metric("zetta_mesh_workloads_failed") == 1
         self.configuration["mesh"]["workloads"][0]["tls"]["key"] = key
 
         # Hold the outbound listener to exercise an actual bind errno after capture commits.
@@ -197,10 +215,74 @@ signal.pause()
         eventually(marker.exists)
         self.restore_configuration()
         eventually(lambda: self.diagnostic("outbound listener 127.0.0.1:15001: bind mesh listener: errno=98"))
-        assert self.probe("/readyz")[0] == 503
+        assert self.probe("/readyz")[0] == 200
+        assert self.metric("zetta_mesh_workloads_failed") == 1
+        assert self.metric("zetta_mesh_workloads") == 1
+        # Releasing the port lets the agent's retry bring the workload up without a new projection.
         self.stop_process(blocker)
-        eventually(lambda: self.probe("/readyz")[0] == 200)
+        eventually(lambda: self.metric("zetta_mesh_workloads") == 2)
+        assert self.metric("zetta_mesh_workloads_failed") == 0
         return agent
+
+    def check_isolation(self):
+        """LSR-178: a tenant holding a capture port in its own namespace fails only its workload.
+
+        The noisy namespace listens on 0.0.0.0:15008 before it is enrolled. Enrolling it must leave
+        the source and destination workloads, and a live session between them, untouched."""
+        marker = self.directory / "noisy-bound"
+        code = """
+import signal
+import socket
+import sys
+from pathlib import Path
+s = socket.socket()
+s.bind(('0.0.0.0', 15008))
+s.listen()
+Path(sys.argv[1]).touch()
+signal.pause()
+"""
+        blocker = subprocess.Popen(["ip", "netns", "exec", self.noisy, sys.executable, "-c", code, str(marker)])
+        self.processes.append((blocker, None))
+        eventually(marker.exists)
+        live = subprocess.Popen(
+            ["ip", "netns", "exec", self.source, sys.executable, "-c", """
+import socket
+import sys
+import time
+s = socket.create_connection(('10.203.0.3', 8080), timeout=3)
+s.settimeout(20)
+s.sendall(b'before')
+assert s.recv(6) == b'before'
+print('connected', flush=True)
+sys.stdin.readline()
+s.sendall(b'after')
+assert s.recv(5) == b'after'
+print('survived', flush=True)
+"""], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.processes.append((live, None))
+        assert live.stdout.readline().strip() == "connected"
+        noisy = {
+            "identity": "noisy.workspace.test",
+            "network_namespace": f"/var/run/netns/{self.noisy}",
+            "tls": self.tls("mesh-noisy"),
+            "routes": [],
+            "ports": [],
+        }
+        self.configuration["mesh"]["workloads"].append(noisy)
+        self.restore_configuration()
+        eventually(lambda: self.diagnostic("inbound listener 0.0.0.0:15008: bind mesh listener: errno=98"))
+        assert self.probe("/readyz")[0] == 200
+        assert self.metric("zetta_mesh_workloads_failed") == 1
+        assert self.metric("zetta_mesh_workloads") == 2
+        self.request(self.source)
+        live.stdin.write("go\n")
+        live.stdin.flush()
+        assert live.stdout.readline().strip() == "survived"
+        assert live.wait(timeout=8) == 0
+        self.stop_process(blocker)
+        self.configuration["mesh"]["workloads"].remove(noisy)
+        self.restore_configuration()
+        eventually(lambda: self.metric("zetta_mesh_workloads_failed") == 0)
 
     def start_echo(self):
         code = """
@@ -257,7 +339,7 @@ assert s.recv(10) == b'mesh-proof'
             self.stop_process(process)
             if log:
                 log.close()
-        for namespace in (self.source, self.destination, self.rogue):
+        for namespace in (self.source, self.destination, self.rogue, self.noisy):
             command("ip", "netns", "del", namespace, check=False)
         command("ip", "link", "del", self.bridge, check=False)
 
@@ -278,6 +360,7 @@ with tempfile.TemporaryDirectory(prefix="mesh-linux-", dir=Path.cwd()) as direct
         echo = test.start_echo()
         test.request(test.source)
         test.request(test.rogue, expected=False)
+        test.check_isolation()
 
         test.write_raw_configuration('{"mesh":')
         eventually(lambda: test.probe("/readyz")[0] == 503)
@@ -289,8 +372,22 @@ with tempfile.TemporaryDirectory(prefix="mesh-linux-", dir=Path.cwd()) as direct
         test.stop_process(agent, crash=True)
         test.request(test.source, expected=False)
 
-        restarted = test.start_agent()
+        restarted = test.start_agent(extra=("--idle-timeout", "2"))
         test.request(test.source)
+        # LSR-177: an established session that stays idle past --idle-timeout ends and frees its slot.
+        idle = command("ip", "netns", "exec", test.source, sys.executable, "-c", """
+import socket
+import time
+s = socket.create_connection(('10.203.0.3', 8080), timeout=3)
+s.settimeout(10)
+s.sendall(b'idle')
+assert s.recv(4) == b'idle'
+start = time.monotonic()
+assert s.recv(1) == b''
+assert time.monotonic() - start < 8
+""", check=False)
+        assert idle.returncode == 0, idle.stderr
+        eventually(lambda: test.metric("zetta_mesh_sessions") == 0)
         metrics = test.probe("/metrics")[1]
         assert "zetta_mesh_allows_total" in metrics
 

@@ -44,10 +44,19 @@ struct Options {
   std::string health_listen = "127.0.0.1:8080";
   std::string audit = "-";
   std::size_t max_sessions = 128;
+  // At most this many of max_sessions per workload; each workload is also guaranteed
+  // min(this, max_sessions / workloads) that no other workload can take (LSR-177).
+  std::size_t max_workload_sessions = 128;
   unsigned setup_timeout = 10;
+  // An established session that moves no bytes in either direction for this many seconds ends,
+  // so an idle connection cannot hold a session slot forever (LSR-177).
+  unsigned idle_timeout = 900;
 };
 
 Configuration read_configuration(const std::filesystem::path &path);
+// True when two projected workloads are identical, so a reload keeps the running one, with its
+// listeners and sessions, instead of rebuilding it (LSR-178).
+bool same_workload(const Workload &left, const Workload &right);
 Options parse_options(std::span<char *> args);
 void print_help(std::ostream &output);
 std::string failure_detail(const std::exception &error);

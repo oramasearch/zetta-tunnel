@@ -113,6 +113,7 @@ add_library(zetta_tunnel_roles STATIC
   src/mesh_config.cpp
   src/mesh_diagnostics.cpp
   src/mesh_netlink.cpp
+  src/mesh_sessions.cpp
   src/peer.cpp
   src/peer_config.cpp
   src/tunnel.cpp
@@ -226,6 +227,10 @@ add_executable(mesh_config_test tests/mesh_config_test.cpp)
 target_link_libraries(mesh_config_test PRIVATE zetta_tunnel_roles)
 target_compile_options(mesh_config_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME mesh_config_validation COMMAND mesh_config_test)
+add_executable(mesh_sessions_test tests/mesh_sessions_test.cpp)
+target_link_libraries(mesh_sessions_test PRIVATE zetta_tunnel_roles)
+target_compile_options(mesh_sessions_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME mesh_session_quotas COMMAND mesh_sessions_test)
 add_executable(mesh_netlink_test tests/mesh_netlink_test.cpp)
 target_link_libraries(mesh_netlink_test PRIVATE zetta_tunnel_roles)
 target_compile_options(mesh_netlink_test PRIVATE -Wall -Wextra -Wpedantic -Werror)

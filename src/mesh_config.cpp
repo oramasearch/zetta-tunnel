@@ -191,6 +191,14 @@ Configuration read_configuration(const std::filesystem::path &file) {
   return result;
 }
 
+bool same_workload(const Workload &left, const Workload &right) {
+  return left.identity == right.identity && left.network_namespace == right.network_namespace &&
+         left.tls.certificate == right.tls.certificate &&
+         left.tls.private_key == right.tls.private_key &&
+         left.tls.certificate_authority == right.tls.certificate_authority &&
+         left.routes == right.routes && left.ports == right.ports;
+}
+
 Options parse_options(std::span<char *> args) {
   if (args.empty() || std::string_view(args[0]) != "mesh") {
     invalid("mesh role required");
@@ -219,10 +227,16 @@ Options parse_options(std::span<char *> args) {
   options.health_listen = take("--health-listen", options.health_listen);
   options.audit = take("--audit", options.audit);
   options.max_sessions = number(take("--max-sessions", "128"));
+  const auto workload_sessions = take("--max-workload-sessions");
+  options.max_workload_sessions =
+      workload_sessions.empty() ? options.max_sessions : number(workload_sessions);
   options.setup_timeout = number(take("--setup-timeout", "10"));
+  options.idle_timeout = number(take("--idle-timeout", "900"));
   if (options.configuration.empty() || options.max_sessions < 1 || options.max_sessions > 4096 ||
-      options.setup_timeout < 1 || options.setup_timeout > 60) {
-    invalid("mesh configuration and bounded session/setup limits are required");
+      options.max_workload_sessions < 1 || options.max_workload_sessions > options.max_sessions ||
+      options.setup_timeout < 1 || options.setup_timeout > 60 || options.idle_timeout < 1 ||
+      options.idle_timeout > 86400) {
+    invalid("mesh configuration and bounded session/setup/idle limits are required");
   }
   numeric_address(options.health_listen);
   if (!flags.empty()) {
@@ -234,7 +248,7 @@ Options parse_options(std::span<char *> args) {
 void print_help(std::ostream &output) {
   output << "usage: zetta-tunnel mesh --configuration FILE [flags]\n"
          << "mesh: [--health-listen IP:PORT] [--audit FILE|-] [--max-sessions 128]\n"
-         << "      [--setup-timeout 10]\n"
+         << "      [--max-workload-sessions N] [--setup-timeout 10] [--idle-timeout 900]\n"
          << "See docs/mesh.md for projection, capture, TLS, probes and metrics.\n";
 }
 
