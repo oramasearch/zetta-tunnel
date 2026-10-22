@@ -1,5 +1,6 @@
 #pragma once
 
+#include "egress_address.hpp"
 #include "tunnel.hpp"
 
 #include <filesystem>
@@ -15,6 +16,7 @@ struct Rule {
   std::vector<std::string> source_ips;
   std::string dns_name;
   std::vector<std::uint16_t> ports;
+  std::vector<DeniedCidr> denied_cidrs;
   bool operator==(const Rule &) const = default;
 };
 
