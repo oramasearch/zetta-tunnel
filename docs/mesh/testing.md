@@ -5,10 +5,28 @@ collection bounds, numeric-address requirements, target-port preservation, role 
 netlink wire layouts/ACK handling, safe failure diagnostics and all
 existing transport/tunnel/egress/peer/ingress regressions on macOS and Linux.
 
+The unprivileged Linux cases `mesh_namespace_identity` and `mesh_namespace_pinning` exercise the
+production namespace code with real namespace descriptors and a temporary proc-shaped directory.
+They replace the numeric process directory during pinning and after runtime installation, remove
+it, and check capture, listener and upstream operations after runtime withdrawal. Hooks around
+`openat` replace the directory or cgroup at the initial namespace open.
+`setns` records the descriptor inode, netlink socket creation is refused before any kernel mutation,
+and setting the reserved socket mark is intercepted; ordinary loopback sockets are real.
+Identity cases reject wrong or prefixed pod UIDs, changed cgroup membership during the open,
+missing cgroup files, inode mismatches and non-network namespace handles. No special capabilities
+or live cluster are needed. Run the focused proof with:
+
+```sh
+cmake --build build --target mesh_namespace_test mesh_config_test mesh_netlink_test -j 6
+ctest --test-dir build -R '^(mesh_namespace_(identity|pinning)|mesh_config_validation|mesh_netlink_wire)$' \
+  --timeout 600 --output-on-failure
+```
+
 The capture acceptance test needs a Linux node with root privileges, network namespaces, nftables
 in the kernel and the `ip` command. It creates only process-unique temporary namespaces, veth links
-and a bridge, and removes them at the end. It uses no container runtime. Run it after the native
-build:
+and a bridge, and removes them at the end. A trusted temporary proc-shaped directory supplies
+the pod cgroup records beside links to these real network namespace handles. It uses no container
+runtime. Run it after the native build:
 
 ```sh
 sudo env ZETTA_MESH_PRIVILEGED_TEST=1 \
@@ -28,6 +46,8 @@ proves:
 - the agent's marked target and mesh sockets do not capture themselves;
 - health and metrics remain outside workload capture;
 - an invalid atomic replacement closes traffic and readiness until a valid projection returns;
+- replacing both numeric process paths with a third real network namespace leaves existing
+  runtimes on their pinned namespaces; a forced reload rejects the changed inode until restored;
 - killing the agent leaves namespace rules installed and traffic refused;
 - restarting the agent reuses those rules and restores only the authorized TLS path;
 - stopping both the application and agent leaves the path closed.

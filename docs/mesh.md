@@ -26,7 +26,8 @@ The operator must use this order for every pod selected by a `NetworkSandbox`:
 1. Apply the Cilium/default-deny policy. A declared workload connection permits only TCP port
    15008 between enrolled pod addresses, not the application port.
 2. Create the pod sandbox while the platform startup gate keeps application containers stopped.
-3. Atomically replace the node's mesh projection with the sandbox network-namespace path.
+3. Atomically replace the node's mesh projection with the sandbox network-namespace path, pod UID
+   and verified namespace inode.
 4. Wait for mesh readiness. The agent atomically creates the namespace's nftables table and rules,
    then binds its capture listeners.
 5. Release the application startup gate.
@@ -48,8 +49,8 @@ the agent never removes capture from a running namespace.
 The node agent needs `CAP_SYS_ADMIN` to enter network namespaces, `CAP_NET_ADMIN` there to install
 capture, and permission to open marked sockets. These privileges belong only to the agent in the
 platform system namespace. Workload containers retain the restricted profile with no added
-capabilities. The agent must mount the pod network-namespace handles read-only and its certificate
-projection read-only.
+capabilities. The agent needs a read-only host proc mount exposing process directories, cgroup
+metadata and network-namespace handles, and a read-only certificate projection.
 
 ## Operator projection
 
@@ -64,6 +65,8 @@ only while its pod sandbox is enrolled on this node.
       {
         "identity": "api.workspace-example.test",
         "network_namespace": "/host/proc/1842/ns/net",
+        "pod_uid": "11111111-2222-3333-4444-555555555555",
+        "network_namespace_inode": 4026533001,
         "tls": {
           "certificate": "certificates/api.pem",
           "key": "certificates/api.key",
@@ -91,7 +94,28 @@ only while its pod sandbox is enrolled on this node.
 
 The document and every nested object accept exactly the shown fields. Node and workload identities
 are lowercase DNS-style names. `network_namespace` and TLS paths may be absolute or relative to the
-projection. Linux capture currently accepts IPv4 addresses with explicit ports. Destination and
+projection. The namespace path must end in `<positive-pid>/ns/net`; named namespace paths alone
+are no longer accepted. `pod_uid` is the lowercase UUID from the Kubernetes API.
+`network_namespace_inode` is a positive unsigned 64-bit integer. The node projector obtains it with
+`fstat` on the namespace descriptor opened relative to the process directory whose cgroup it
+checked; it rechecks membership around that open and omits processes that disappeared or changed.
+
+Before installing a runtime, the agent opens the process directory once and opens `cgroup` and
+`ns/net` relative to that descriptor. It checks exact pod membership before and after opening the
+namespace, compares its inode with the projection and requires a Linux network namespace handle.
+Membership accepts an exact `pod<uid>` cgroupfs component or the corresponding guaranteed,
+burstable or besteffort systemd pod slice, including the driver's underscore spelling of the UID.
+A UID prefix or a different pod component fails validation.
+
+Capture installation, both listeners and both session directions use that pinned descriptor.
+Sessions retain ownership through runtime withdrawal, so process death, PID reuse or path
+replacement cannot redirect an installed workload identity to another namespace. Reload and
+restart repeat identity validation; any mismatch closes traffic and leaves readiness false.
+
+This contract must release together with the operator projector update. Projections without
+`pod_uid` or `network_namespace_inode` fail closed, including projections from older operators.
+
+Linux capture currently accepts IPv4 addresses with explicit ports. Destination and
 mesh addresses must be numeric to prevent DNS changes from widening a route. A target preserves
 its declared port. Duplicate identities, namespaces, destinations, target ports and source
 identities are invalid.
@@ -174,8 +198,8 @@ See [verification](mesh/testing.md) for portable and privileged Linux proofs.
 
 A refused projection emits one bounded stderr line with its stage and a zero-based workload index
 where applicable. Stages distinguish projection reading/validation, workload TLS validation,
-namespace capture, each listener address, listener threads and projection metadata. Namespace and
-socket failures include the operation, numeric errno and its message. Kernel capture failures name
+namespace identity validation, namespace capture, each listener address, listener threads and
+projection metadata. Namespace and socket failures include the operation, numeric errno and its message. Kernel capture failures name
 the table, chain or rule operation and include the netlink error, sequence/type and any extended
 kernel error text or attribute offset. TLS loading reports the failed setting and OpenSSL/errno
 codes without certificate, key, file contents or OpenSSL error-data strings.

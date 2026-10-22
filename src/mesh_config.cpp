@@ -81,10 +81,29 @@ transport::TlsFiles tls_files(const std::filesystem::path &base, const nlohmann:
 }
 
 Workload workload(const std::filesystem::path &base, const nlohmann::json &value) {
-  exact_fields(value, {"identity", "network_namespace", "ports", "routes", "tls"});
+  exact_fields(value, {"identity", "network_namespace", "pod_uid", "network_namespace_inode",
+                       "ports", "routes", "tls"});
   Workload result;
   result.identity = identity(value.at("identity"));
   result.network_namespace = path(base, value.at("network_namespace"));
+  result.pod_uid = value.at("pod_uid").get<std::string>();
+  if (result.pod_uid.size() != 36) {
+    invalid("mesh pod UID must be a lowercase UUID");
+  }
+  for (std::size_t index = 0; index < result.pod_uid.size(); ++index) {
+    const char character = result.pod_uid[index];
+    const bool separator = index == 8 || index == 13 || index == 18 || index == 23;
+    if (separator
+            ? character != '-'
+            : !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))) {
+      invalid("mesh pod UID must be a lowercase UUID");
+    }
+  }
+  const auto &inode = value.at("network_namespace_inode");
+  if (!inode.is_number_unsigned() || inode.get<std::uint64_t>() == 0) {
+    invalid("mesh network namespace inode must be a positive unsigned integer");
+  }
+  result.network_namespace_inode = inode.get<std::uint64_t>();
   result.tls = tls_files(base, value.at("tls"));
   const auto &routes = value.at("routes");
   const auto &ports = value.at("ports");
