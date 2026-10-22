@@ -34,6 +34,8 @@ struct Options {
   std::filesystem::path grants;
   std::string audit = "-";
   std::size_t max_sessions = 128;
+  std::size_t max_pending_sessions = 128;
+  std::size_t max_pending_per_source = 32;
 };
 
 struct AuditRecord {

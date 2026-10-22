@@ -79,7 +79,9 @@ explicit nonzero ports.
 | `--listen IP:PORT` | Workload listener; `0.0.0.0:7445` |
 | `--health-listen IP:PORT` | Private plain-HTTP probe listener; `127.0.0.1:8080` |
 | `--sni-port PORT` | Destination port inferred for TLS SNI traffic; `443` |
-| `--max-sessions N` | `128`; range 1–4096, including connections still identifying or resolving |
+| `--max-sessions N` | `128`; authorized sessions, range 1–4096 |
+| `--max-pending-sessions N` | `128`; separate setup budget, range 1–4096 |
+| `--max-pending-per-source N` | `32`; pending sockets per source IP, range 1–4096 |
 | `--audit FILE` | Append JSON lines to a file; `-` writes stdout and is the default |
 
 The gateway expects no certificates or private keys. Application TLS stays end-to-end between the
@@ -124,3 +126,13 @@ interface and depends on the record-ingestion contract tracked by zetta#1281; un
 operator must collect JSON lines without claiming they were durably written into Zetta.
 
 See [verification](egress/testing.md) for executable coverage.
+
+## Setup admission
+
+`--max-sessions` counts authorized sessions after the source, DNS name and port match a projected
+rule. Incomplete SNI and explicit-routing requests use a separate `--max-pending-sessions` budget
+(default 128), with `--max-pending-per-source` (32) limiting each socket source IP. Both options
+accept 1–4096. IPv4-mapped IPv6 sources share the corresponding IPv4 quota. The existing absolute
+ten-second setup deadline bounds occupancy even when bytes trickle in; probes have their own budget.
+`tunnel` and `peer` use the same admission accounting. `egress_pending_capacity` holds incomplete
+requests beyond the active limit and requires an authorized request to pass.

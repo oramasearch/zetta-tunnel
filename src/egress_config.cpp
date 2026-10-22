@@ -218,6 +218,12 @@ Options parse_options(std::span<char *> args) {
   options.rules = take("--rules");
   options.audit = take("--audit", options.audit);
   options.max_sessions = number(take("--max-sessions", "128"));
+  options.max_pending_sessions = number(take("--max-pending-sessions", "128"));
+  options.max_pending_per_source = number(take("--max-pending-per-source", "32"));
+  if (options.max_pending_sessions < 1 || options.max_pending_sessions > 4096 ||
+      options.max_pending_per_source < 1 || options.max_pending_per_source > 4096) {
+    throw std::invalid_argument("pending limits must be in 1..4096");
+  }
   const auto sni_port = number(take("--sni-port", "443"));
   if (options.rules.empty() || options.max_sessions < 1 || options.max_sessions > 4096 ||
       sni_port == 0 || sni_port > 65535) {
@@ -236,6 +242,7 @@ void print_help(std::ostream &output) {
   output << "usage: zetta-tunnel egress --rules FILE [flags]\n"
          << "egress: [--listen IP:PORT] [--health-listen IP:PORT] [--audit FILE|-]\n"
          << "        [--max-sessions 128] [--sni-port 443]\n"
+         << "[--max-pending-sessions 128] [--max-pending-per-source 32]\n"
          << "See docs/egress.md for the rule, routing, and audit contracts.\n";
 }
 

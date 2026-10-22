@@ -185,7 +185,7 @@ foreach(ZETTA_TUNNEL_CASE
     long_lived certificate_bound expired_grant endpoint_identity relay_identity
     server_identity target_isolation invalid_reload sighup capacity postgres
     tls_boundaries backpressure setup_timeout projected_reload removed_file grant_change
-    audit_failure invalid_credentials)
+    audit_failure invalid_credentials pending_capacity credentials_reload)
   add_test(NAME tunnel_${ZETTA_TUNNEL_CASE}
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/tunnel_integration.py
       $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates> ${ZETTA_TUNNEL_CASE})
@@ -200,7 +200,7 @@ add_test(NAME ingress_http_validation COMMAND ingress_http_test)
 foreach(ZETTA_TUNNEL_INGRESS_CASE
     hosts routing tls body_limit streaming websocket http2 h2_streaming h2_reset upstream_tls
     reload certificate_reload config_validation capacity timeout headers keepalive audit_failure
-    h2_limits h2_backpressure h2_upload_flow projected_reload early_response slow_headers upstream_framing)
+    h2_limits h2_backpressure h2_upload_flow projected_reload early_response slow_headers upstream_framing pending_capacity source_fairness)
   add_test(NAME ingress_${ZETTA_TUNNEL_INGRESS_CASE}
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/ingress_integration.py
       $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates> ${ZETTA_TUNNEL_INGRESS_CASE})
@@ -242,6 +242,7 @@ endif()
 
 foreach(ZETTA_TUNNEL_EGRESS_CASE
     allowed
+    pending_capacity
     sni
     sni_denied
     denied
@@ -266,6 +267,7 @@ foreach(ZETTA_TUNNEL_PEER_CASE
     named_only
     revoke
     mutual_tls
+    pending_capacity
     reload
     invalid_reload
     setup_timeout
@@ -277,3 +279,13 @@ foreach(ZETTA_TUNNEL_PEER_CASE
       ${ZETTA_TUNNEL_PEER_CASE})
   set_tests_properties(peer_${ZETTA_TUNNEL_PEER_CASE} PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
 endforeach()
+
+add_executable(admission_test tests/admission_test.cpp)
+target_link_libraries(admission_test PRIVATE zetta_tunnel_roles)
+target_compile_options(admission_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME admission_budgets COMMAND admission_test)
+add_test(NAME tls_context_reuse
+  COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/tls_context_reuse.py
+    $<TARGET_FILE:admission_test> $<TARGET_FILE:tunnel_certificates>)
+
+set_tests_properties(ingress_source_fairness PROPERTIES SKIP_RETURN_CODE 77)

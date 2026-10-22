@@ -24,6 +24,8 @@ struct Options {
   std::filesystem::path rules;
   std::string audit = "-";
   std::size_t max_sessions = 128;
+  std::size_t max_pending_sessions = 128;
+  std::size_t max_pending_per_source = 32;
   std::uint16_t sni_port = 443;
 };
 

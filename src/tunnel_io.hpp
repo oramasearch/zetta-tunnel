@@ -14,6 +14,7 @@
 #include <vector>
 
 struct x509_st;
+struct ssl_ctx_st;
 
 namespace zetta_tunnel::tunnel {
 
@@ -34,11 +35,15 @@ struct CertificateGrant {
   std::vector<std::string> issuer_sha256;
 };
 
+using TlsContext = std::shared_ptr<ssl_ctx_st>;
+TlsContext load_credentials(const transport::TlsFiles &files);
+std::string source_address(const corosio::tcp_socket &socket);
+
 // Streaming TLS uses the same TLS 1.3/Corosio stack as the framed API.
 // All operations run on one io_context thread, with one reader and one writer.
 class SecureStream {
 public:
-  SecureStream(corosio::tcp_socket &socket, const transport::TlsFiles &files, bool server,
+  SecureStream(corosio::tcp_socket &socket, TlsContext context, bool server,
                const std::string &peer_name);
   ~SecureStream();
   SecureStream(const SecureStream &) = delete;

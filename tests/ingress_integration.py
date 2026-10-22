@@ -243,13 +243,13 @@ class Harness:
         finally:
             connection.close()
 
-    def connect(self, host="lake.test", protocols=("http/1.1",), ca="server-ca.pem", tls12=False):
+    def connect(self, host="lake.test", protocols=("http/1.1",), ca="server-ca.pem", tls12=False, source="127.0.0.1"):
         context = ssl.create_default_context(cafile=self.directory / ca)
         context.minimum_version = ssl.TLSVersion.TLSv1_2 if tls12 else ssl.TLSVersion.TLSv1_3
         if tls12:
             context.maximum_version = ssl.TLSVersion.TLSv1_2
         context.set_alpn_protocols(list(protocols))
-        sock = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        sock = socket.create_connection(("127.0.0.1", self.port), timeout=5, source_address=(source, 0))
         try:
             return context.wrap_socket(sock, server_hostname=host)
         except BaseException:
@@ -710,8 +710,69 @@ def config_validation(test):
     eventually(lambda: test.probe("/readyz")[0] == 200)
 
 
+def source_fairness(test):
+    if sys.platform != "linux":
+        sys.exit(77)  # Multiple 127/8 loopback sources are provided by the Linux runner.
+    test.start(("--max-sessions", "8", "--max-pending-per-source", "2",
+                "--max-sessions-per-source", "4", "--max-requests", "8",
+                "--max-requests-per-source", "2"))
+    with contextlib.ExitStack() as stack:
+        pending = [stack.enter_context(socket.create_connection(("127.0.0.1", test.port), timeout=3))
+                   for _ in range(2)]
+        eventually(lambda: test.metric("connections_active") == 2)
+        with socket.create_connection(("127.0.0.1", test.port), timeout=3) as excess:
+            assert closed(excess)
+        # A fresh source can still complete setup while the first source's quota is full.
+        other = stack.enter_context(test.connect(source="127.0.0.2"))
+        other.sendall(b"GET / HTTP/1.1\r\nHost: lake.test\r\nConnection: close\r\n\r\n")
+        response = http.client.HTTPResponse(other)
+        response.begin()
+        assert response.status == 200
+        response.read()
+        for sock in pending:
+            sock.close()
+        eventually(lambda: test.metric("connections_active") == 0)
+        # Incomplete uploads can consume only this source's request share, including H2 streams.
+        sock = stack.enter_context(test.connect())
+        sock.sendall(b"POST / HTTP/1.1\r\nHost: lake.test\r\nContent-Length: 100000\r\n\r\nx")
+        h2 = stack.enter_context(contextlib.closing(H2(test)))
+        h2.request(1, "/", "POST", end=False)
+        h2.send(0, 0, 1, b"x")
+        eventually(lambda: test.metric("requests_active") == 2)
+        h2.request(3, "/refused")
+        while 3 not in h2.ends:
+            h2.read()
+        assert h2.heads[3][0] != 0x88
+        assert test.request()[0] == 503
+        eventually(lambda: test.metric("connections_active") == 2)
+        # TLS-only sessions also remain subject to the active source share.
+        for _ in range(2):
+            stack.enter_context(test.connect())
+        eventually(lambda: test.metric("connections_active") == 4)
+        with test.connect() as excess:
+            assert closed(excess)
+        with test.connect(source="127.0.0.2") as other:
+            other.sendall(b"GET / HTTP/1.1\r\nHost: lake.test\r\nConnection: close\r\n\r\n")
+            response = http.client.HTTPResponse(other)
+            response.begin()
+            assert response.status == 200
+            response.read()
+
+
+def pending_capacity(test):
+    test.start(("--max-sessions", "1"))
+    with contextlib.ExitStack() as stack:
+        for _ in range(2):
+            sock = stack.enter_context(socket.create_connection(("127.0.0.1", test.port), timeout=3))
+            sock.sendall(b"\x16")
+        eventually(lambda: test.metric("connections_active") == 2)
+        assert test.request()[0] == 200
+        assert test.probe("/readyz")[0] == 200
+
+
 def capacity(test):
-    test.start(("--max-sessions", "1", "--setup-timeout-seconds", "1"))
+    test.start(("--max-sessions", "1", "--max-pending-sessions", "1",
+                "--setup-timeout-seconds", "1"))
     with socket.create_connection(("127.0.0.1", test.port), timeout=4) as stalled:
         stalled.sendall(b"\x16")
         eventually(lambda: test.metric("connections_active") == 1)

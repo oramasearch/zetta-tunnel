@@ -106,8 +106,10 @@ When a grant disappears, expires or changes, its sessions close within the next 
 backpressured sessions are included. Expiry and session cancellation are checked on a 100 ms
 event-loop tick, without waiting for application traffic. Changes to workspace, endpoint or
 expiry also terminate existing sessions instead of retargeting them. An empty valid grant set
-is ready but authorizes nobody. Certificates/keys/CA bundles are loaded for new connections;
-restart after a CA rotation when existing TLS sessions must also be replaced.
+is ready but authorizes nobody. Certificates, keys and CA bundles are loaded at startup and
+refreshed every two seconds or on SIGHUP, outside connection handling. Streams share each immutable TLS context snapshot. An invalid
+refresh refuses new traffic and fails readiness until valid files return. Existing streams retain
+their snapshot; restart after a CA rotation when existing TLS sessions must also be replaced.
 
 ## Command-line configuration
 
@@ -124,7 +126,9 @@ Listeners use numeric IPv4 or bracketed IPv6 addresses. Outbound hosts may use D
 | `--listen IP:PORT` | client | `127.0.0.1:5433`; only loopback IPs allowed |
 | `--listen IP:PORT` | relay | `0.0.0.0:7443` |
 | `--listen IP:PORT` | endpoint | `0.0.0.0:7444` |
-| `--max-sessions N` | all | 128; allowed range 1–4096, including connections still authenticating |
+| `--max-sessions N` | all | 128; authenticated sessions, range 1–4096 |
+| `--max-pending-sessions N` | all | 128; separate setup budget, range 1–4096 |
+| `--max-pending-per-source N` | all | 32; concurrent setup sockets per source IP, range 1–4096 |
 | `--relay HOST:PORT` | client | Required outbound relay address |
 | `--server-name DNS_OR_IP` | client | Relay certificate identity; defaults to `--relay` host |
 | `--grants FILE` | relay | Required operator-projected grant snapshot |
@@ -138,7 +142,13 @@ Listeners use numeric IPv4 or bracketed IPv6 addresses. Outbound hosts may use D
 
 Each direction has a 16 KiB copy buffer; there is no unbounded data queue. Connection setup,
 including DNS, connect, TLS and endpoint acknowledgement, has a ten-second deadline. Capacity
-overflow is refused. SIGINT/SIGTERM cancel accepts and sessions and write session-end records.
+overflow is refused. Relay sessions enter the authenticated budget only after TLS and grant
+authorization; endpoints do so after verifying the relay identity. Pending sockets cannot consume
+that budget. The loopback client uses the same admission accounting before outbound setup.
+Source limits use the socket address without its port, with IPv4-mapped IPv6 normalized to IPv4;
+forwarding headers never select a quota. A proxy that shares one source address shares its quota,
+so configure limits for that topology. SIGINT/SIGTERM cancel accepts and sessions and write
+session-end records.
 Local peers on the developer's machine can use its loopback listener, so protect that machine's
 accounts and private-key files. No privileged ports, `NET_ADMIN`, packet capture, or internet API
 access are required. DNS resolution is local to each role; the endpoint resolves only its configured

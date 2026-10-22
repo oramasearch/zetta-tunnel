@@ -183,6 +183,15 @@ Options parse_options(std::span<char *> args) {
   options.health_listen = take("--health-listen", options.health_listen);
   options.audit = take("--audit", options.audit);
   options.max_sessions = number(take("--max-sessions", "128"));
+  options.max_pending_sessions = number(take("--max-pending-sessions", "128"));
+  options.max_pending_per_source = number(take("--max-pending-per-source", "32"));
+  if (options.max_pending_sessions < 1 || options.max_pending_sessions > 4096 ||
+      options.max_pending_per_source < 1 || options.max_pending_per_source > 4096) {
+    throw std::invalid_argument("pending limits must be in 1..4096");
+  }
+  options.max_sessions_per_source = number(take("--max-sessions-per-source", "0"));
+  options.max_requests_per_source = number(take("--max-requests-per-source", "0"));
+  require(options.max_sessions_per_source <= 4096 && options.max_requests_per_source <= 4096);
   options.max_requests = number(take("--max-requests", "256"));
   const auto idle = number(take("--idle-timeout-seconds", "60"));
   const auto setup = number(take("--setup-timeout-seconds", "10"));
@@ -202,7 +211,9 @@ void print_help(std::ostream &output) {
   output << "usage: zetta-tunnel ingress --configuration FILE [flags]\n"
          << "  --listen IP:PORT (0.0.0.0:8443) --health-listen IP:PORT (127.0.0.1:8080)\n"
          << "  --audit FILE|- --max-sessions 128 --max-requests 256\n"
+         << "  --max-sessions-per-source 0 --max-requests-per-source 0 (automatic shares)\n"
          << "  --idle-timeout-seconds 60 --setup-timeout-seconds 10\n"
+         << "[--max-pending-sessions 128] [--max-pending-per-source 32]\n"
          << "See docs/ingress.md for TLS, routes, reload, metrics and limits.\n";
 }
 

@@ -44,7 +44,7 @@ std::error_code tls_error() {
   return std::make_error_code(std::errc::protocol_error);
 }
 
-using Context = std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)>;
+using Context = TlsContext;
 
 Context make_context(const transport::TlsFiles &files) {
   Context owner(SSL_CTX_new(TLS_method()), SSL_CTX_free);
@@ -70,16 +70,17 @@ Context make_context(const transport::TlsFiles &files) {
 
 struct SecureStream::Impl {
   corosio::tcp_socket &socket;
-  std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)> context{nullptr, SSL_CTX_free};
+  TlsContext context;
   std::unique_ptr<SSL, decltype(&SSL_free)> ssl{nullptr, SSL_free};
   explicit Impl(corosio::tcp_socket &value) : socket(value) {
   }
 };
 
-SecureStream::SecureStream(corosio::tcp_socket &socket, const transport::TlsFiles &files,
-                           bool server, const std::string &peer_name)
+SecureStream::SecureStream(corosio::tcp_socket &socket, TlsContext context, bool server,
+                           const std::string &peer_name)
     : impl_(std::make_unique<Impl>(socket)) {
-  impl_->context = make_context(files);
+  impl_->context = std::move(context);
+  require(impl_->context != nullptr);
   impl_->ssl.reset(SSL_new(impl_->context.get()));
   require(impl_->ssl != nullptr);
   auto *ssl = impl_->ssl.get();
@@ -288,6 +289,25 @@ bool valid_uuid(std::string_view value) {
     }
   }
   return true;
+}
+
+TlsContext load_credentials(const transport::TlsFiles &files) {
+  return make_context(files);
+}
+
+std::string source_address(const corosio::tcp_socket &socket) {
+  const auto endpoint = socket.remote_endpoint();
+  if (endpoint.is_v4()) {
+    return endpoint.v4_address().to_string();
+  }
+  const auto address = endpoint.v6_address();
+  if (address.is_v4_mapped()) {
+    const auto bytes = address.to_bytes();
+    return corosio::ipv4_address(
+               corosio::ipv4_address::bytes_type{bytes[12], bytes[13], bytes[14], bytes[15]})
+        .to_string();
+  }
+  return address.to_string();
 }
 
 void validate_credentials(const transport::TlsFiles &files) {
