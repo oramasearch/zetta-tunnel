@@ -310,6 +310,7 @@ foreach(ZETTA_TUNNEL_PEER_CASE
     reload
     invalid_reload
     setup_timeout
+    idle_listener
     capacity
     audit_failure)
   add_test(NAME peer_${ZETTA_TUNNEL_PEER_CASE}

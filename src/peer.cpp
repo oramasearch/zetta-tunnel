@@ -630,6 +630,8 @@ private:
       if (error) {
         co_return;
       }
+      // The record starts at acceptance, like the setup deadline set below.
+      session->decision.started_at = std::chrono::system_clock::now();
       session->decision.direction = "import";
       session->decision.service = listener->service.name;
       session->decision.port = listener->service.port;
@@ -674,6 +676,8 @@ private:
         }
         throw PeerError("accept failed");
       }
+      // The record starts at acceptance, like the setup deadline set below.
+      session->decision.started_at = std::chrono::system_clock::now();
       session->decision.direction = "export";
       session->decision.peer = tunnel::peer_address(session->incoming);
       if (configuration_) {
@@ -746,6 +750,7 @@ private:
         session->socket.close();
         continue;
       }
+      session->deadline = std::chrono::steady_clock::now() + 5s;
       health_sessions_.emplace(session->id, session);
       launch(serve_health(session));
     }
