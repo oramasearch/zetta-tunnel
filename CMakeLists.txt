@@ -231,6 +231,14 @@ target_link_libraries(mesh_netlink_test PRIVATE zetta_tunnel_roles)
 target_compile_options(mesh_netlink_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME mesh_netlink_wire COMMAND mesh_netlink_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/mesh)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_executable(mesh_namespace_test tests/mesh_namespace_test.cpp)
+  target_link_libraries(mesh_namespace_test PRIVATE zetta_tunnel_roles)
+  target_compile_options(mesh_namespace_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_link_options(mesh_namespace_test PRIVATE -Wl,--wrap=openat -Wl,--wrap=setns -Wl,--wrap=socket
+    -Wl,--wrap=setsockopt)
+  add_test(NAME mesh_namespace_identity COMMAND mesh_namespace_test identity)
+  add_test(NAME mesh_namespace_pinning COMMAND mesh_namespace_test pinning)
+  set_tests_properties(mesh_namespace_identity mesh_namespace_pinning PROPERTIES TIMEOUT 20)
   add_test(NAME mesh_linux_fail_closed
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/mesh_linux_integration.py
       $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates>)

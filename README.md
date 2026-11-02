@@ -31,7 +31,9 @@ bound pending sockets per source, and keep setup deadlines independent of progre
 peer streams share TLS contexts loaded outside accept handling; public ingress also bounds
 established connections and requests per source.
 `zetta-tunnel mesh` installs fail-closed Linux namespace capture and carries exact workload
-identities over mutual TLS while Cilium remains the policy enforcer.
+identities over mutual TLS while Cilium remains the policy enforcer. Workload runtimes pin a
+namespace descriptor after checking the projected pod UID and namespace inode; this projection
+contract requires the paired operator projector update.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
 **Released as [v0.1.0](docs/releases/v0.1.0.md)** (2026-10-15): the private image
