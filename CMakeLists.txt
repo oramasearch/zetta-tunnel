@@ -181,7 +181,7 @@ add_executable(tunnel_certificates tests/tunnel_certificates.cpp)
 target_link_libraries(tunnel_certificates PRIVATE OpenSSL::Crypto)
 target_compile_options(tunnel_certificates PRIVATE -Wall -Wextra -Wpedantic -Werror)
 foreach(ZETTA_TUNNEL_CASE
-    roundtrip revoke expiry expired_cert unknown_grant wrong_ca no_uri multiple_uri
+    roundtrip revoke expiry expired_cert unknown_grant wrong_ca other_customer_ca no_uri multiple_uri
     long_lived certificate_bound expired_grant endpoint_identity relay_identity
     server_identity target_isolation invalid_reload sighup capacity postgres
     tls_boundaries backpressure setup_timeout projected_reload removed_file grant_change

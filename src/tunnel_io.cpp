@@ -5,6 +5,7 @@
 #include <boost/corosio/wait_type.hpp>
 
 #include <openssl/err.h>
+#include <openssl/evp.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 
@@ -14,6 +15,8 @@
 #include <fcntl.h>
 #endif
 
+#include <algorithm>
+#include <array>
 #include <limits>
 #include <stdexcept>
 
@@ -216,7 +219,34 @@ CertificateGrant SecureStream::grant() const {
   if (expires <= starts || expires - starts > std::chrono::hours(12)) {
     throw transport::Error("certificate_lifetime");
   }
-  return {id, expires};
+  // The chain OpenSSL verified, leaf first. Only the CAs above the leaf name the issuer; a
+  // certificate presented by the peer but not part of the verified path is never considered.
+  const auto *chain = SSL_get0_verified_chain(impl_->ssl.get());
+  require(chain != nullptr && sk_X509_num(chain) >= 2);
+  std::vector<std::string> issuers;
+  for (int index = 1; index < sk_X509_num(chain); ++index) {
+    issuers.push_back(certificate_sha256(sk_X509_value(chain, index)));
+  }
+  return {id, expires, std::move(issuers)};
+}
+
+std::string certificate_sha256(const X509 *certificate) {
+  std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+  unsigned int size = 0;
+  require(X509_digest(certificate, EVP_sha256(), digest.data(), &size) == 1 && size == 32);
+  constexpr char hex[] = "0123456789abcdef";
+  std::string value;
+  for (unsigned int index = 0; index < size; ++index) {
+    value += hex[digest[index] >> 4];
+    value += hex[digest[index] & 15];
+  }
+  return value;
+}
+
+bool valid_sha256(std::string_view value) {
+  return value.size() == 64 && std::all_of(value.begin(), value.end(), [](char c) {
+           return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+         });
 }
 
 capy::task<> connect(corosio::io_context &context, corosio::tcp_socket &socket,
