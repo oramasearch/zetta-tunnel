@@ -240,8 +240,27 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     SKIP_RETURN_CODE 77)
 endif()
 
+add_executable(egress_address_test tests/egress_address_test.cpp)
+target_link_libraries(egress_address_test PRIVATE zetta_tunnel_roles)
+target_compile_options(egress_address_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME egress_address_classification COMMAND egress_address_test)
+
+set(ZETTA_TUNNEL_NETWORK_FIXTURE "")
+if(UNIX)
+  add_library(egress_network_fixture SHARED tests/egress_network_fixture.cpp)
+  set(ZETTA_TUNNEL_NETWORK_FIXTURE "$<TARGET_FILE:egress_network_fixture>")
+  target_link_libraries(egress_network_fixture PRIVATE ${CMAKE_DL_LIBS})
+  target_compile_options(egress_network_fixture PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 foreach(ZETTA_TUNNEL_EGRESS_CASE
     allowed
+    destination_forbidden
+    destination_sni_forbidden
+    destination_mixed
+    destination_cluster
+    destination_rebinding
+    destination_reload
     pending_capacity
     sni
     sni_denied
@@ -258,8 +277,20 @@ foreach(ZETTA_TUNNEL_EGRESS_CASE
   add_test(NAME egress_${ZETTA_TUNNEL_EGRESS_CASE}
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/egress_integration.py
       $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates>
-      ${ZETTA_TUNNEL_EGRESS_CASE})
+      ${ZETTA_TUNNEL_EGRESS_CASE} "${ZETTA_TUNNEL_NETWORK_FIXTURE}")
   set_tests_properties(egress_${ZETTA_TUNNEL_EGRESS_CASE} PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
+endforeach()
+
+foreach(ZETTA_TUNNEL_FORBIDDEN_ADDRESS
+    10.224.0.1 100.100.100.200 169.254.169.254 168.63.129.16
+    172.16.0.1 192.168.0.1 ::1 ::ffff:127.0.0.1 fd00::1 fe80::1
+    64:ff9b::a00:1 2002:7f00:1::1)
+  string(REPLACE ":" "_" ZETTA_TUNNEL_ADDRESS_CASE "${ZETTA_TUNNEL_FORBIDDEN_ADDRESS}")
+  add_test(NAME egress_forbidden_${ZETTA_TUNNEL_ADDRESS_CASE}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/egress_integration.py
+      $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates>
+      destination_forbidden "${ZETTA_TUNNEL_NETWORK_FIXTURE}" ${ZETTA_TUNNEL_FORBIDDEN_ADDRESS})
+  set_tests_properties(egress_forbidden_${ZETTA_TUNNEL_ADDRESS_CASE} PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
 endforeach()
 
 foreach(ZETTA_TUNNEL_PEER_CASE

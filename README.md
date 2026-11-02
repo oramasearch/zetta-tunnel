@@ -20,8 +20,10 @@ and private amd64 image and release workflow are built.**
 `zetta-tunnel client`, `relay`, and `endpoint` provide grant-certificate authentication,
 one-target forwarding, live revocation/expiry and JSON-lines audit. `zetta-tunnel egress`
 authorizes workload source IPs, exact DNS names and ports from operator-projected rules, with HTTPS
-SNI and explicit other-TCP routing. `zetta-tunnel peer` exchanges only projected named services
-over mutual TLS, including when the two sites use identical private addresses.
+SNI and explicit other-TCP routing. It checks all resolved destinations for public unicast
+addresses before connecting, with optional operator-projected cluster CIDR exclusions.
+`zetta-tunnel peer` exchanges only projected named services over mutual TLS, including when the
+two sites use identical private addresses.
 `zetta-tunnel ingress` terminates mounted cert-manager TLS and routes hosts/paths to Services,
 with body limits, unbuffered streaming, WebSockets, HTTP/2, reloads, probes and metrics.
 Tunnel, egress, peer and ingress listeners separate pending setup capacity from established sessions,

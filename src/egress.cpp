@@ -433,7 +433,20 @@ private:
     if (resolve_error) {
       throw GatewayError("dns_resolution");
     }
+    // Validate the complete answer before trying any endpoint, including mixed A/AAAA replies.
     for (const auto &result : results) {
+      if (!allowed_destination(result.get_endpoint(), session.rule->denied_cidrs)) {
+        throw GatewayError("destination_forbidden");
+      }
+    }
+    for (const auto &result : results) {
+      // DNS may finish after a projection change or the setup deadline.
+      reload(false);
+      const auto current = rules_.find(session.rule->id);
+      if (session.stop.stop_requested() || !ready() || current == rules_.end() ||
+          current->second != *session.rule) {
+        throw GatewayError("rule_changed");
+      }
       auto [connect_error] = co_await session.outgoing.connect(result.get_endpoint());
       if (!connect_error) {
         session.decision.resolved_address = tunnel::peer_address(session.outgoing);
