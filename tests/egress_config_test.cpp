@@ -50,6 +50,20 @@ void test_rules(const std::filesystem::path &path) {
   const auto rules = egress::read_rules(path);
   require(rules.size() == 1);
   require(rules.begin()->second.dns_name == "localhost");
+  auto with_denied = rule;
+  with_denied.insert(with_denied.size() - 1, R"(,"denied_cidrs":["8.8.8.0/24","2606:4700::/32"])");
+  write("{\"rules\":[" + with_denied + "]}");
+  require(egress::read_rules(path).begin()->second.denied_cidrs.size() == 2);
+  require(rules.begin()->second.denied_cidrs.empty());
+  for (const auto *denied :
+       {R"(null)", R"(["bad"])", R"(["10.0.0.1/8"])", R"(["::/129"])", R"([1])", R"({})"}) {
+    auto invalid_rule = rule;
+    invalid_rule.insert(invalid_rule.size() - 1, std::string(",\"denied_cidrs\":") + denied);
+    write("{\"rules\":[" + invalid_rule + "]}");
+    refuses([&] {
+      egress::read_rules(path);
+    });
+  }
   write("{\"rules\":[]}");
   require(egress::read_rules(path).empty());
   auto second_rule = rule;
@@ -86,12 +100,15 @@ void test_flags() {
   const std::vector<std::string> base = {"egress", "--rules", "rules.json"};
   require(parse(base).listen == "0.0.0.0:7445");
   require(parse(base).sni_port == 443);
-  for (const auto &extra : std::vector<std::vector<std::string>>{{"--listen", "hostname:7445"},
-                                                                 {"--cert", "cert.pem"},
-                                                                 {"--rules", "again"},
-                                                                 {"--listen"},
-                                                                 {"--max-sessions", "0"},
-                                                                 {"--sni-port", "65536"}}) {
+  for (const auto &extra :
+       std::vector<std::vector<std::string>>{{"--listen", "hostname:7445"},
+                                             {"--cert", "cert.pem"},
+                                             {"--rules", "again"},
+                                             {"--listen"},
+                                             {"--max-sessions", "0"},
+                                             {"--max-pending-sessions", "0"},
+                                             {"--max-pending-per-source", "4097"},
+                                             {"--sni-port", "65536"}}) {
     auto values = base;
     values.insert(values.end(), extra.begin(), extra.end());
     refuses([&] {

@@ -76,9 +76,12 @@ developer app -> client (loopback) -> mTLS -> relay (cluster, :443) -> mTLS -> e
 2. The client makes a key and a CSR. Lake signs it with the grant's customer CA. The certificate
    carries `urn:orama:tunnel-grant:<uuid>` and lives at most 12 hours.
 3. The operator projects the live grants into the relay's grants file:
-   `{"grants":[{"id","workspace","endpoint","expires_at"}]}`. The relay's client trust bundle is
-   the union of the live grants' customer CAs.
-4. The relay maps the certificate's grant to its endpoint. The endpoint forwards to its one target,
+   `{"grants":[{"id","workspace","endpoint","expires_at","client_ca_sha256"}]}`. The relay's
+   client trust bundle is the union of the live grants' customer CAs, so each grant also names the
+   SHA-256 fingerprints of its own customer's CAs.
+4. The relay accepts the certificate only if its verified chain runs through one of the CAs its
+   grant names: one customer's CA never authorizes another customer's grant (LSR-074,
+   [#28](https://github.com/oramasearch/zetta-tunnel/issues/28)). It maps the grant to its endpoint. The endpoint forwards to its one target,
    and the operator's `Connection` allows only that path.
 5. Revoking or expiring a grant removes it from the projection. The relay closes that grant's live
    sessions.

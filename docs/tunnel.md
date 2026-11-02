@@ -20,7 +20,7 @@ from providing additional services of its own.
 ## Authentication and certificates
 
 The developer signs into Lake using Lake's existing sign-in. Lake issues a separate client
-certificate for each tunnel grant, signed by a per-cluster tunnel CA. Its URI SAN is exactly
+certificate for each tunnel grant, signed by that grant's customer CA. Its URI SAN is exactly
 `urn:orama:tunnel-grant:<grant-uuid>`, where UUIDs use lowercase canonical `8-4-4-4-12` notation.
 There must be exactly one URI SAN; DNS SANs do not provide grant identity. Certificate lifetime
 (`notAfter - notBefore`) must be at most 12 hours, and `notAfter` must not exceed the grant's
@@ -36,7 +36,7 @@ include intermediate chains; keys and CA bundles are PEM.
 
 | Connection | Presenting credentials | Verifier's trust and identity |
 |---|---|---|
-| Developer to relay | Lake grant certificate and key | Relay `--ca`: per-cluster tunnel CA; verified URI SAN supplies grant ID |
+| Developer to relay | Lake grant certificate and key | Relay `--ca`: union of customer CAs; verified URI SAN supplies grant ID; the verified chain must include a CA the grant names |
 | Relay to developer | Relay server certificate and key | Client `--ca`: relay server CA; `--server-name` or relay hostname/IP SAN |
 | Relay to endpoint | Operator workload certificate and key | Endpoint `--ca`: operator workload CA; exact `--peer-name` SAN |
 | Endpoint to relay | Operator endpoint certificate and key | Relay `--endpoint-ca`; exact DNS SAN `endpoint.<grant-uuid>` |
@@ -67,7 +67,8 @@ The operator projects the live set into a mounted ConfigMap or Secret file:
       "id": "11111111-1111-4111-8111-111111111111",
       "workspace": "workspace-example",
       "endpoint": "endpoint-service.workspace-example.svc:7444",
-      "expires_at": "2026-10-14T20:00:00Z"
+      "expires_at": "2026-10-14T20:00:00Z",
+      "client_ca_sha256": ["3f1c...64 lowercase hex characters..."]
     }
   ]
 }
@@ -75,7 +76,21 @@ The operator projects the live set into a mounted ConfigMap or Secret file:
 
 `workspace` is a Kubernetes namespace label, `endpoint` is `host:port` (bracket IPv6), and
 `expires_at` is RFC3339 with an explicit zone. Fractional seconds and numeric UTC offsets are
-accepted. Unknown/missing fields, duplicate JSON keys, duplicate grant IDs, invalid UUIDs,
+accepted. `client_ca_sha256` lists one to 16 distinct SHA-256 fingerprints, in lowercase hex, of the
+DER encoding of each customer CA certificate allowed to sign this grant's developer certificates
+(the certificates in the ZettaTunnel's `clientCAPEM`).
+
+### Binding a grant to its customer CA
+
+The relay's `--ca` is the union of every live grant's customer CA, so TLS alone only proves that some
+customer signed the certificate. Authorization then requires that one certificate in the verified
+chain above the leaf (an intermediate or the trust anchor) has a fingerprint the selected grant
+lists. Otherwise the connection is refused with reason `grant_issuer`, before any endpoint is
+contacted. A customer that holds its own CA key (for example after recovering it) and knows another
+customer's grant ID and expiry therefore still cannot open that grant's tunnel (LSR-074,
+[#28](https://github.com/oramasearch/zetta-tunnel/issues/28)). A grant without `client_ca_sha256`
+is a malformed snapshot, so a relay never falls back to trusting any CA in its bundle. Changing a
+grant's fingerprints is a grant change and ends its live sessions. Unknown/missing fields, duplicate JSON keys, duplicate grant IDs, invalid UUIDs,
 invalid namespaces and malformed addresses or dates reject the entire snapshot. Limits are
 1 MiB per file, 10,000 grants and eight JSON nesting levels. Publish complete files using atomic
 replacement; Kubernetes projected-volume symlink changes are followed.
@@ -91,8 +106,10 @@ When a grant disappears, expires or changes, its sessions close within the next 
 backpressured sessions are included. Expiry and session cancellation are checked on a 100 ms
 event-loop tick, without waiting for application traffic. Changes to workspace, endpoint or
 expiry also terminate existing sessions instead of retargeting them. An empty valid grant set
-is ready but authorizes nobody. Certificates/keys/CA bundles are loaded for new connections;
-restart after a CA rotation when existing TLS sessions must also be replaced.
+is ready but authorizes nobody. Certificates, keys and CA bundles are loaded at startup and
+refreshed every two seconds or on SIGHUP, outside connection handling. Streams share each immutable TLS context snapshot. An invalid
+refresh refuses new traffic and fails readiness until valid files return. Existing streams retain
+their snapshot; restart after a CA rotation when existing TLS sessions must also be replaced.
 
 ## Command-line configuration
 
@@ -109,7 +126,9 @@ Listeners use numeric IPv4 or bracketed IPv6 addresses. Outbound hosts may use D
 | `--listen IP:PORT` | client | `127.0.0.1:5433`; only loopback IPs allowed |
 | `--listen IP:PORT` | relay | `0.0.0.0:7443` |
 | `--listen IP:PORT` | endpoint | `0.0.0.0:7444` |
-| `--max-sessions N` | all | 128; allowed range 1–4096, including connections still authenticating |
+| `--max-sessions N` | all | 128; authenticated sessions, range 1–4096 |
+| `--max-pending-sessions N` | all | 128; separate setup budget, range 1–4096 |
+| `--max-pending-per-source N` | all | 32; concurrent setup sockets per source IP, range 1–4096 |
 | `--relay HOST:PORT` | client | Required outbound relay address |
 | `--server-name DNS_OR_IP` | client | Relay certificate identity; defaults to `--relay` host |
 | `--grants FILE` | relay | Required operator-projected grant snapshot |
@@ -123,7 +142,13 @@ Listeners use numeric IPv4 or bracketed IPv6 addresses. Outbound hosts may use D
 
 Each direction has a 16 KiB copy buffer; there is no unbounded data queue. Connection setup,
 including DNS, connect, TLS and endpoint acknowledgement, has a ten-second deadline. Capacity
-overflow is refused. SIGINT/SIGTERM cancel accepts and sessions and write session-end records.
+overflow is refused. Relay sessions enter the authenticated budget only after TLS and grant
+authorization; endpoints do so after verifying the relay identity. Pending sockets cannot consume
+that budget. The loopback client uses the same admission accounting before outbound setup.
+Source limits use the socket address without its port, with IPv4-mapped IPv6 normalized to IPv4;
+forwarding headers never select a quota. A proxy that shares one source address shares its quota,
+so configure limits for that topology. SIGINT/SIGTERM cancel accepts and sessions and write
+session-end records.
 Local peers on the developer's machine can use its loopback listener, so protect that machine's
 accounts and private-key files. No privileged ports, `NET_ADMIN`, packet capture, or internet API
 access are required. DNS resolution is local to each role; the endpoint resolves only its configured
@@ -168,7 +193,7 @@ request. Application payloads, certificate contents, credentials and private key
 
 Byte counts exclude the `ZTUN1` preface and are cumulative through the event, not end-to-end
 delivery acknowledgements. Reasons include `grant_absent`, `grant_expired`, `grant_removed`,
-`grant_changed`, `certificate_identity`, `certificate_lifetime`, `certificate_exceeds_grant`,
+`grant_changed`, `grant_issuer`, `certificate_identity`, `certificate_lifetime`, `certificate_exceeds_grant`,
 `tls_peer_refused`, `upstream_tls_refused`, `tls_configuration`, `upstream_connect`, `capacity`,
 `setup_timeout`, `peer_closed`, `shutdown`, `unavailable`, `audit_unavailable`, and `session_error`.
 

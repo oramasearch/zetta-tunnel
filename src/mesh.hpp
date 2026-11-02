@@ -29,6 +29,8 @@ struct Port {
 struct Workload {
   std::string identity;
   std::filesystem::path network_namespace;
+  std::string pod_uid;
+  std::uint64_t network_namespace_inode = 0;
   transport::TlsFiles tls;
   std::vector<Route> routes;
   std::vector<Port> ports;

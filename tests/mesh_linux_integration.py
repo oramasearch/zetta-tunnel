@@ -80,6 +80,21 @@ class Harness:
         command("ip", "-n", name, "link", "set", "eth0", "up")
         command("ip", "-n", name, "addr", "add", address + "/24", "dev", "eth0")
 
+    def namespace_projection(self, name, pid):
+        # A trusted proc-shaped fixture supplies cgroup identity beside the real namespace handle.
+        process = self.directory / "proc" / str(pid)
+        (process / "ns").mkdir(parents=True, exist_ok=True)
+        namespace = process / "ns/net"
+        if not namespace.exists():
+            namespace.symlink_to(f"/var/run/netns/{name}")
+        uid = f"11111111-2222-3333-4444-{pid:012d}"
+        (process / "cgroup").write_text(f"0::/kubepods/pod{uid}/container\n")
+        return {
+            "network_namespace": str(namespace),
+            "pod_uid": uid,
+            "network_namespace_inode": namespace.stat().st_ino,
+        }
+
     def write_configuration(self):
         tls = lambda name: {
             "certificate": str(self.directory / f"{name}.pem"),
@@ -92,7 +107,7 @@ class Harness:
                 "workloads": [
                     {
                         "identity": "source.workspace.test",
-                        "network_namespace": f"/var/run/netns/{self.source}",
+                        **self.namespace_projection(self.source, 123),
                         "tls": tls("mesh-source"),
                         "routes": [
                             {
@@ -105,7 +120,7 @@ class Harness:
                     },
                     {
                         "identity": "destination.workspace.test",
-                        "network_namespace": f"/var/run/netns/{self.destination}",
+                        **self.namespace_projection(self.destination, 124),
                         "tls": tls("mesh-destination"),
                         "routes": [],
                         "ports": [
@@ -165,12 +180,12 @@ class Harness:
         projection = self.directory / "mesh.json"
         projection.unlink()
         eventually(lambda: self.diagnostic("stage=projection read/validation: system_error=2"))
-        self.configuration["mesh"]["workloads"][0]["network_namespace"] = str(self.directory / "absent-netns")
+        self.configuration["mesh"]["workloads"][0]["network_namespace"] = str(self.directory / "absent-proc/123/ns/net")
         self.restore_configuration()
-        eventually(lambda: self.diagnostic("open workload network namespace: errno=2"))
+        eventually(lambda: self.diagnostic("open workload process directory: errno=2"))
         assert self.probe("/readyz")[0] == 503
 
-        self.configuration["mesh"]["workloads"][0]["network_namespace"] = f"/var/run/netns/{self.source}"
+        self.configuration["mesh"]["workloads"][0]["network_namespace"] = self.namespace_projection(self.source, 123)["network_namespace"]
         key = self.configuration["mesh"]["workloads"][0]["tls"]["key"]
         self.configuration["mesh"]["workloads"][0]["tls"]["key"] = str(self.directory / "absent-key")
         self.restore_configuration()
@@ -201,6 +216,28 @@ signal.pause()
         self.stop_process(blocker)
         eventually(lambda: self.probe("/readyz")[0] == 200)
         return agent
+
+    def check_namespace_pinning(self, agent):
+        # Keep the projection unchanged while its numeric paths start naming a third namespace.
+        for pid in (123, 124):
+            process = self.directory / "proc" / str(pid)
+            process.rename(process.with_name(f"old-{pid}"))
+            (process / "ns").mkdir(parents=True)
+            (process / "ns/net").symlink_to(f"/var/run/netns/{self.rogue}")
+            (process / "cgroup").write_text(
+                (process.with_name(f"old-{pid}") / "cgroup").read_text()
+            )
+        self.request(self.source)
+        agent.send_signal(signal.SIGHUP)
+        eventually(lambda: self.probe("/readyz")[0] == 503)
+        self.request(self.source, expected=False)
+        for pid in (123, 124):
+            process = self.directory / "proc" / str(pid)
+            shutil.rmtree(process)
+            process.with_name(f"old-{pid}").rename(process)
+        agent.send_signal(signal.SIGHUP)
+        eventually(lambda: self.probe("/readyz")[0] == 200)
+        self.request(self.source)
 
     def start_echo(self):
         code = """
@@ -278,6 +315,7 @@ with tempfile.TemporaryDirectory(prefix="mesh-linux-", dir=Path.cwd()) as direct
         echo = test.start_echo()
         test.request(test.source)
         test.request(test.rogue, expected=False)
+        test.check_namespace_pinning(agent)
 
         test.write_raw_configuration('{"mesh":')
         eventually(lambda: test.probe("/readyz")[0] == 503)

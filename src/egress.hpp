@@ -1,5 +1,6 @@
 #pragma once
 
+#include "egress_address.hpp"
 #include "tunnel.hpp"
 
 #include <filesystem>
@@ -15,6 +16,7 @@ struct Rule {
   std::vector<std::string> source_ips;
   std::string dns_name;
   std::vector<std::uint16_t> ports;
+  std::vector<DeniedCidr> denied_cidrs;
   bool operator==(const Rule &) const = default;
 };
 
@@ -24,6 +26,8 @@ struct Options {
   std::filesystem::path rules;
   std::string audit = "-";
   std::size_t max_sessions = 128;
+  std::size_t max_pending_sessions = 128;
+  std::size_t max_pending_per_source = 32;
   std::uint16_t sni_port = 443;
 };
 

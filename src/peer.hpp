@@ -40,6 +40,8 @@ struct Options {
   std::filesystem::path configuration;
   std::string audit = "-";
   std::size_t max_sessions = 128;
+  std::size_t max_pending_sessions = 128;
+  std::size_t max_pending_per_source = 32;
 };
 
 std::string normalize_service_name(std::string_view value);

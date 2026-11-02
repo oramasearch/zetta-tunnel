@@ -3,6 +3,7 @@
 import concurrent.futures
 import contextlib
 import datetime
+import hashlib
 import http.client
 import json
 import os
@@ -99,10 +100,18 @@ class Harness:
         self.relay_health = self.port()
         lifetime = 6 if CASE == "expiry" else 300
         subprocess.run([CERTIFICATES, directory, str(lifetime)], check=True)
+        # The relay trusts the union of every customer's CA, as the operator projects it.
+        (self.directory / "customer-cas.pem").write_text(
+            (self.directory / "tunnel-ca.pem").read_text() + (self.directory / "tenant-ca.pem").read_text())
         self.expiry = ssl.cert_time_to_seconds(ssl._ssl._test_decode_cert(str(self.directory / "developer.pem"))["notAfter"])
         self.grant = {"id": GRANT, "workspace": "workspace-test", "endpoint": self.address(self.endpoint),
-                      "expires_at": datetime.datetime.fromtimestamp(self.expiry, datetime.timezone.utc).isoformat()}
+                      "expires_at": datetime.datetime.fromtimestamp(self.expiry, datetime.timezone.utc).isoformat(),
+                      "client_ca_sha256": [self.fingerprint("tunnel-ca")]}
         self.set_grants([self.grant])
+
+    def fingerprint(self, name):
+        der = ssl.PEM_cert_to_DER_cert((self.directory / f"{name}.pem").read_text())
+        return hashlib.sha256(der).hexdigest()
 
     def port(self):
         reservation = socket.socket()
@@ -144,8 +153,8 @@ class Harness:
         self.start("endpoint", **self.tls_flags(endpoint_cert, "workload-ca"),
                    listen=self.address(self.endpoint), health_listen=self.address(self.endpoint_health),
                    peer_name="relay.workload", target=target or self.address(self.echo.server_address[1]),
-                   audit=str(self.directory / "endpoint.jsonl"))
-        self.relay_process = self.start("relay", stdout=relay_stdout, **self.tls_flags("relay", "tunnel-ca"),
+                   audit=str(self.directory / "endpoint.jsonl"), max_sessions=max_sessions)
+        self.relay_process = self.start("relay", stdout=relay_stdout, **self.tls_flags("relay", "customer-cas"),
                    listen=self.address(self.relay), health_listen=self.address(self.relay_health),
                    grants=str(self.directory / "grants.json"),
                    endpoint_cert=str(self.directory / f"{relay_workload}.pem"),
@@ -252,7 +261,7 @@ def expiry(test):
 
 
 def refusal(test):
-    names = {"expired_cert": "expired", "unknown_grant": "unknown", "wrong_ca": "other", "no_uri": "no-uri", "multiple_uri": "multiple-uri", "long_lived": "long-lived"}
+    names = {"expired_cert": "expired", "unknown_grant": "unknown", "wrong_ca": "other", "no_uri": "no-uri", "multiple_uri": "multiple-uri", "long_lived": "long-lived", "other_customer_ca": "tenant"}
     if CASE == "certificate_bound":
         test.grant["expires_at"] = datetime.datetime.fromtimestamp(test.expiry - 30, datetime.timezone.utc).isoformat()
         test.set_grants([test.grant])
@@ -269,6 +278,10 @@ def refusal(test):
     eventually(lambda: bool(test.records("refusal")))
     assert test.echo.accepted == 0
     assert test.records("refusal")[0]["bytes_up"] == 0
+    if CASE == "other_customer_ca":
+        # A certificate from another trusted customer CA names this grant and its expiry, and is
+        # still refused, because the grant is bound to its own customer's CA (LSR-074).
+        assert test.records("refusal")[0]["reason"] == "grant_issuer", test.records("refusal")
 
 
 def target_isolation(test):
@@ -309,6 +322,33 @@ def sighup(test):
         os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
         test.relay_process.send_signal(signal.SIGHUP)
         assert closed(connection)
+
+
+def credentials_reload(test):
+    test.start_stack()
+    test.roundtrip()
+    path = test.directory / "relay.key"
+    original = path.read_bytes()
+    path.write_text("invalid fixture key")
+    eventually(lambda: test.health(test.relay_health, "/readyz") == 503)
+    path.write_bytes(original)
+    eventually(lambda: test.health(test.relay_health, "/readyz") == 200)
+    test.roundtrip(b"reloaded")
+
+
+def pending_capacity(test):
+    test.start_stack(max_sessions="2")
+    with contextlib.ExitStack() as stack:
+        # Stalled unauthenticated sockets must not take established slots.
+        for port in (test.relay, test.endpoint):
+            for _ in range(3):
+                sock = stack.enter_context(socket.create_connection(("127.0.0.1", port), timeout=3))
+                sock.sendall(b"\x16")
+        for _ in range(2):
+            live = stack.enter_context(test.connection())
+            live.sendall(b"available")
+            assert receive(live, 9) == b"available"
+        assert test.health(test.relay_health, "/readyz") == 200
 
 
 def capacity(test):
@@ -470,7 +510,7 @@ def postgres(test):
 
 CASES = {"roundtrip": roundtrip, "revoke": revoke, "expiry": expiry,
          "target_isolation": target_isolation, "invalid_reload": invalid_reload,
-         "sighup": sighup, "capacity": capacity, "postgres": postgres,
+         "pending_capacity": pending_capacity, "credentials_reload": credentials_reload, "sighup": sighup, "capacity": capacity, "postgres": postgres,
          "tls_boundaries": tls_boundaries, "backpressure": backpressure,
          "setup_timeout": setup_timeout, "projected_reload": projected_reload,
          "removed_file": removed_file, "grant_change": grant_change,

@@ -81,6 +81,10 @@ void flags() {
   require(parse({"ingress", "--configuration", "routes.json"}).max_requests == 256);
   for (const auto &extra :
        std::vector<std::vector<std::string>>{{"--max-sessions", "0"},
+                                             {"--max-pending-sessions", "0"},
+                                             {"--max-pending-per-source", "4097"},
+                                             {"--max-sessions-per-source", "4097"},
+                                             {"--max-requests-per-source", "-1"},
                                              {"--max-requests", "4097"},
                                              {"--idle-timeout-seconds", "0"},
                                              {"--setup-timeout-seconds", "4294967297"},

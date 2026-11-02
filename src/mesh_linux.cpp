@@ -16,9 +16,11 @@
 #include <linux/netfilter/nf_tables.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netlink.h>
+#include <linux/nsfs.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sched.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -115,18 +117,112 @@ void signal_reload(int) {
   reloading = 1;
 }
 
+// A generation owns one verified descriptor; process paths are never used by sessions.
+class PinnedNamespace {
+public:
+  explicit PinnedNamespace(const Workload &workload) {
+    const auto &path = workload.network_namespace;
+    const auto process_path = path.parent_path().parent_path();
+    const auto pid = process_path.filename().string();
+    if (path.filename() != "net" || path.parent_path().filename() != "ns" || pid.empty() ||
+        pid.front() == '0' || pid.find_first_not_of("0123456789") != std::string::npos) {
+      throw std::runtime_error("workload namespace must name a numeric process ns/net");
+    }
+    FileDescriptor process(
+        ::open(process_path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+    if (!process) {
+      system_error("open workload process directory");
+    }
+    verify_pod(process.get(), workload.pod_uid);
+    target_.reset(::openat(process.get(), "ns/net", O_RDONLY | O_CLOEXEC));
+    if (!target_) {
+      system_error("open workload network namespace");
+    }
+    struct stat status{};
+    if (::fstat(target_.get(), &status) != 0) {
+      system_error("stat workload network namespace");
+    }
+    if (static_cast<std::uint64_t>(status.st_ino) != workload.network_namespace_inode ||
+        ::ioctl(target_.get(), NS_GET_NSTYPE) != CLONE_NEWNET) {
+      throw std::runtime_error("workload network namespace identity changed or is not a netns");
+    }
+    verify_pod(process.get(), workload.pod_uid);
+  }
+
+  int get() const {
+    return target_.get();
+  }
+
+private:
+  static void verify_pod(int process, const std::string &uid) {
+    FileDescriptor cgroup(::openat(process, "cgroup", O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    if (!cgroup) {
+      system_error("open workload process cgroup");
+    }
+    constexpr std::size_t limit = 65536;
+    std::string data;
+    std::array<char, 4096> buffer{};
+    while (true) {
+      const auto size = ::read(cgroup.get(), buffer.data(), buffer.size());
+      if (size < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        system_error("read workload process cgroup");
+      }
+      if (size == 0) {
+        break;
+      }
+      data.append(buffer.data(), static_cast<std::size_t>(size));
+      if (data.size() > limit) {
+        throw std::runtime_error("workload process cgroup exceeds limit");
+      }
+    }
+    auto systemd_uid = uid;
+    std::ranges::replace(systemd_uid, '-', '_');
+    std::istringstream lines(data);
+    std::string line;
+    bool matched = false;
+    while (std::getline(lines, line)) {
+      const auto first = line.find(':');
+      const auto second = first == std::string::npos ? first : line.find(':', first + 1);
+      if (second == std::string::npos || second + 1 == line.size() || line[second + 1] != '/') {
+        throw std::runtime_error("invalid workload process cgroup");
+      }
+      std::istringstream components(line.substr(second + 1));
+      std::string component;
+      while (std::getline(components, component, '/')) {
+        const bool pod_component =
+            component.starts_with("pod") || component.find("-pod") != std::string::npos;
+        if (!pod_component) {
+          continue;
+        }
+        if (component == "pod" + uid || component == "kubepods-pod" + systemd_uid + ".slice" ||
+            component == "kubepods-burstable-pod" + systemd_uid + ".slice" ||
+            component == "kubepods-besteffort-pod" + systemd_uid + ".slice") {
+          matched = true;
+        } else {
+          // A different pod marker, including a UID prefix, is never membership proof.
+          throw std::runtime_error("workload process pod identity changed");
+        }
+      }
+    }
+    if (!matched) {
+      throw std::runtime_error("workload process pod identity changed");
+    }
+  }
+
+  FileDescriptor target_;
+};
+
 class NetworkNamespace {
 public:
-  explicit NetworkNamespace(const std::filesystem::path &path) {
+  explicit NetworkNamespace(const PinnedNamespace &target) {
     original_.reset(::open("/proc/thread-self/ns/net", O_RDONLY | O_CLOEXEC));
     if (!original_) {
       system_error("open current thread network namespace");
     }
-    target_.reset(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
-    if (!target_) {
-      system_error("open workload network namespace");
-    }
-    if (::setns(target_.get(), CLONE_NEWNET) != 0) {
+    if (::setns(target.get(), CLONE_NEWNET) != 0) {
       system_error("enter workload network namespace");
     }
   }
@@ -146,7 +242,6 @@ public:
 
 private:
   FileDescriptor original_;
-  FileDescriptor target_;
 };
 
 void send_request(int socket, std::span<const std::byte> bytes, std::string_view operation) {
@@ -217,7 +312,7 @@ bool table_exists(int socket) {
   return replies.table_present();
 }
 
-void install_capture(const std::filesystem::path &path) {
+void install_capture(const PinnedNamespace &path) {
   NetworkNamespace network_namespace(path);
   FileDescriptor socket(::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_NETFILTER));
   if (!socket) {
@@ -262,7 +357,7 @@ void socket_timeout(int socket, unsigned seconds) {
   }
 }
 
-int listener(const std::filesystem::path &path, std::string_view host, std::uint16_t port) {
+int listener(const PinnedNamespace &path, std::string_view host, std::uint16_t port) {
   NetworkNamespace network_namespace(path);
   FileDescriptor socket(::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0));
   if (!socket) {
@@ -287,7 +382,7 @@ int listener(const std::filesystem::path &path, std::string_view host, std::uint
   return socket.release();
 }
 
-int connect_marked(const std::filesystem::path &path, std::string_view target, unsigned timeout) {
+int connect_marked(const PinnedNamespace &path, std::string_view target, unsigned timeout) {
   const auto address = parse_ipv4(target);
   FileDescriptor socket;
   {
@@ -543,7 +638,12 @@ private:
 };
 
 struct Runtime {
+  explicit Runtime(const Workload &value)
+      : workload(value), network_namespace(std::make_shared<PinnedNamespace>(value)) {
+  }
+
   Workload workload;
+  std::shared_ptr<const PinnedNamespace> network_namespace;
   FileDescriptor outbound;
   FileDescriptor inbound;
   std::jthread outbound_thread;
@@ -630,14 +730,14 @@ private:
         const auto context = "workload[" + std::to_string(replacement.size()) + "] ";
         step = context + "TLS validation";
         static_cast<void>(tls_context(workload.tls));
+        step = context + "namespace identity validation";
+        auto runtime = std::make_shared<Runtime>(workload);
         step = context + "capture installation";
-        install_capture(workload.network_namespace);
-        auto runtime = std::make_shared<Runtime>();
-        runtime->workload = workload;
+        install_capture(*runtime->network_namespace);
         step = context + "outbound listener 127.0.0.1:15001";
-        runtime->outbound.reset(listener(workload.network_namespace, "127.0.0.1", outbound_port));
+        runtime->outbound.reset(listener(*runtime->network_namespace, "127.0.0.1", outbound_port));
         step = context + "inbound listener 0.0.0.0:15008";
-        runtime->inbound.reset(listener(workload.network_namespace, "0.0.0.0", inbound_port));
+        runtime->inbound.reset(listener(*runtime->network_namespace, "0.0.0.0", inbound_port));
         replacement.push_back(std::move(runtime));
       }
       step = "capture listener threads";
@@ -736,14 +836,15 @@ private:
         continue;
       }
       const auto workload = runtime->workload;
-      std::thread([this, accepted, workload, outbound] {
+      const auto network_namespace = runtime->network_namespace;
+      std::thread([this, accepted, workload, network_namespace, outbound] {
         FileDescriptor incoming(accepted);
         try {
           socket_timeout(accepted, options_.setup_timeout);
           if (outbound) {
-            outbound_session(workload, accepted);
+            outbound_session(workload, *network_namespace, accepted);
           } else {
-            inbound_session(workload, accepted);
+            inbound_session(workload, *network_namespace, accepted);
           }
         } catch (...) {
           static_cast<void>(record("deny", "session_failure", workload, "", "", 0,
@@ -782,7 +883,8 @@ private:
     return true;
   }
 
-  void outbound_session(const Workload &workload, int incoming) {
+  void outbound_session(const Workload &workload, const PinnedNamespace &network_namespace,
+                        int incoming) {
     const auto destination = original_destination(incoming);
     const auto route = std::find_if(workload.routes.begin(), workload.routes.end(),
                                     [&destination](const Route &value) {
@@ -794,8 +896,7 @@ private:
       return;
     }
     const auto destination_address = tunnel::parse_address(route->destination);
-    FileDescriptor remote(
-        connect_marked(workload.network_namespace, route->mesh, options_.setup_timeout));
+    FileDescriptor remote(connect_marked(network_namespace, route->mesh, options_.setup_timeout));
     auto secure = client_tls(remote.get(), workload.tls, route->identity);
     const auto preface =
         "ZTM1 " + route->identity + " " + std::to_string(destination_address.port) + "\n";
@@ -814,7 +915,8 @@ private:
     forward(incoming, secure.get());
   }
 
-  void inbound_session(const Workload &workload, int incoming) {
+  void inbound_session(const Workload &workload, const PinnedNamespace &network_namespace,
+                       int incoming) {
     auto secure = server_tls(incoming, workload.tls);
     const auto source = peer_identity(secure.get());
     const auto preface = ssl_line(secure.get());
@@ -842,7 +944,7 @@ private:
       return;
     }
     FileDescriptor target(
-        connect_marked(workload.network_namespace, allowed->target, options_.setup_timeout));
+        connect_marked(network_namespace, allowed->target, options_.setup_timeout));
     if (!record("allow", "identity_allowed", workload, source, destination, allowed->port,
                 "inbound")) {
       return;

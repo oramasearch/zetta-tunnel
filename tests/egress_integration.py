@@ -16,6 +16,9 @@ import time
 
 
 BINARY, CERTIFICATES, CASE = sys.argv[1:4]
+NETWORK_FIXTURE = sys.argv[4] if len(sys.argv) > 4 else ""
+if not NETWORK_FIXTURE:
+    raise RuntimeError("egress integration tests require the POSIX network fixture")
 RULE_ID = "11111111-1111-4111-8111-111111111111"
 
 
@@ -96,6 +99,8 @@ class Harness:
         self.tls_echo = Echo(server_context)
         self.gateway = self.port()
         self.health_port = self.port()
+        self.dns_answers = None
+        self.dns_file = None
         self.rules = [self.rule()]
         self.set_rules(self.rules)
 
@@ -148,7 +153,16 @@ class Harness:
             "--max-sessions",
             max_sessions,
         ]
-        process = subprocess.Popen(args, stdout=log if stdout is None else stdout, stderr=log)
+        environment = os.environ.copy()
+        loader = "DYLD_INSERT_LIBRARIES" if sys.platform == "darwin" else "LD_PRELOAD"
+        environment[loader] = NETWORK_FIXTURE
+        environment["EGRESS_TEST_CONNECT_LOG"] = str(self.directory / "connect.log")
+        if self.dns_file is not None:
+            environment["EGRESS_TEST_DNS_FILE"] = str(self.dns_file)
+        if self.dns_answers is not None:
+            environment["EGRESS_TEST_DNS"] = self.dns_answers
+        process = subprocess.Popen(args, stdout=log if stdout is None else stdout, stderr=log,
+                                   env=environment)
         self.processes.append(process)
         eventually(lambda: self.health("/healthz") == 200)
         return process
@@ -223,6 +237,87 @@ def sni(test):
     record = test.records()[0]
     assert record["decision"] == "allow" and record["protocol"] == "https_sni"
     assert record["dns_name"] == "localhost"
+
+
+def destination_forbidden(test, answers=None):
+    # Every answer is fed to the real resolver-to-connect path. The fixture records connect
+    # attempts and refuses external traffic even when the gateway under test is unfixed.
+    test.dns_answers = answers or (sys.argv[5] if len(sys.argv) > 5 else "127.0.0.1")
+    test.start()
+    with test.explicit()[0] as connection:
+        assert closed(connection)
+    eventually(lambda: len(test.records()) == 1)
+    assert test.records()[0]["reason"] == "destination_forbidden"
+    assert not (test.directory / "connect.log").exists()
+    assert test.echo.accepted == 0
+
+
+def destination_sni_forbidden(test):
+    test.dns_answers = "127.0.0.1"
+    test.start()
+    context = ssl._create_unverified_context()
+    with test.connection() as connection:
+        try:
+            with context.wrap_socket(connection, server_hostname="LOCALHOST."):
+                raise AssertionError("forbidden destination completed TLS")
+        except (ConnectionError, ssl.SSLError):
+            pass
+    eventually(lambda: len(test.records()) == 1)
+    assert test.records()[0]["reason"] == "destination_forbidden"
+    assert not (test.directory / "connect.log").exists()
+    assert test.tls_echo.accepted == 0
+
+
+def destination_mixed(test):
+    test.dns_answers = "93.184.216.34,::ffff:127.0.0.1"
+    test.start()
+    with test.explicit()[0] as connection:
+        assert closed(connection)
+    eventually(lambda: len(test.records()) == 1)
+    assert test.records()[0]["reason"] == "destination_forbidden"
+    assert not (test.directory / "connect.log").exists()
+    assert test.echo.accepted == 0
+
+
+def destination_cluster(test):
+    rule = test.rule()
+    rule["denied_cidrs"] = ["93.184.216.34/32"]
+    test.set_rules([rule])
+    destination_forbidden(test, "93.184.216.34")
+
+
+def destination_rebinding(test):
+    test.dns_file = test.directory / "dns.txt"
+    test.dns_file.write_text("93.184.216.34")
+    test.start()
+    connection, payload = test.explicit()
+    with connection:
+        assert receive(connection, len(payload)) == payload
+        test.dns_file.write_text("127.0.0.1")
+        with test.explicit()[0] as refused:
+            assert closed(refused)
+        # Existing connections keep their checked numeric destination.
+        connection.sendall(b"still public")
+        assert receive(connection, 12) == b"still public"
+    eventually(lambda: len(test.records()) == 2)
+    assert test.records()[-1]["reason"] == "destination_forbidden"
+    assert (test.directory / "connect.log").read_text().count("connect") == 1
+
+
+def destination_reload(test):
+    test.start()
+    connection, payload = test.explicit()
+    with connection:
+        assert receive(connection, len(payload)) == payload
+        rule = test.rule()
+        rule["denied_cidrs"] = ["93.184.216.0/24"]
+        test.set_rules([rule])
+        assert closed(connection)
+    with test.explicit()[0] as connection:
+        assert closed(connection)
+    eventually(lambda: len(test.records()) == 2)
+    assert test.records()[-1]["reason"] == "destination_forbidden"
+    assert (test.directory / "connect.log").read_text().count("connect") == 1
 
 
 def sni_denied(test):
@@ -335,6 +430,18 @@ def setup_timeout(test):
         assert receive(connection, len(payload)) == payload
 
 
+def pending_capacity(test):
+    test.start(max_sessions="1")
+    with contextlib.ExitStack() as stack:
+        for _ in range(2):
+            stalled = stack.enter_context(test.connection())
+            stalled.sendall(b"\x16")
+        connection, payload = test.explicit(payload=b"available")
+        with connection:
+            assert receive(connection, len(payload)) == payload
+        assert test.health("/readyz") == 200
+
+
 def capacity(test):
     test.start(max_sessions="2")
     with contextlib.ExitStack() as stack:
@@ -358,6 +465,12 @@ def audit_failure(test):
 
 CASES = {
     "allowed": explicit_roundtrip,
+    "destination_forbidden": destination_forbidden,
+    "destination_sni_forbidden": destination_sni_forbidden,
+    "destination_mixed": destination_mixed,
+    "destination_cluster": destination_cluster,
+    "destination_reload": destination_reload,
+    "destination_rebinding": destination_rebinding,
     "sni": sni,
     "sni_denied": sni_denied,
     "denied": denied,
@@ -369,6 +482,7 @@ CASES = {
     "projected_reload": projected_reload,
     "setup_timeout": setup_timeout,
     "capacity": capacity,
+    "pending_capacity": pending_capacity,
     "audit_failure": audit_failure,
 }
 

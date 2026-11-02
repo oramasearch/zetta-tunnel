@@ -1,4 +1,5 @@
 #include "egress.hpp"
+#include "admission.hpp"
 
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/when_any.hpp>
@@ -261,6 +262,7 @@ struct Session {
   std::optional<Rule> rule;
   tunnel::EgressDecision decision;
   std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + 10s;
+  std::unique_ptr<Admission::Ticket> admission;
   bool decision_written = false;
   std::string forced_reason;
 
@@ -323,7 +325,9 @@ class Runtime {
 public:
   explicit Runtime(const Options &options)
       : options_(options), listener_(context_), health_(context_),
-        audit_(tunnel::json_lines_sink(options.audit)) {
+        audit_(tunnel::json_lines_sink(options.audit)),
+        admission_(options.max_sessions, options.max_pending_sessions,
+                   options.max_pending_per_source) {
     reload(true);
     listen(listener_, options_.listen);
     listen(health_, options_.health_listen);
@@ -429,7 +433,20 @@ private:
     if (resolve_error) {
       throw GatewayError("dns_resolution");
     }
+    // Validate the complete answer before trying any endpoint, including mixed A/AAAA replies.
     for (const auto &result : results) {
+      if (!allowed_destination(result.get_endpoint(), session.rule->denied_cidrs)) {
+        throw GatewayError("destination_forbidden");
+      }
+    }
+    for (const auto &result : results) {
+      // DNS may finish after a projection change or the setup deadline.
+      reload(false);
+      const auto current = rules_.find(session.rule->id);
+      if (session.stop.stop_requested() || !ready() || current == rules_.end() ||
+          current->second != *session.rule) {
+        throw GatewayError("rule_changed");
+      }
       auto [connect_error] = co_await session.outgoing.connect(result.get_endpoint());
       if (!connect_error) {
         session.decision.resolved_address = tunnel::peer_address(session.outgoing);
@@ -450,6 +467,9 @@ private:
       session->rule = *authorize(*session);
       session->decision.rule_id = session->rule->id;
       session->decision.workspace = session->rule->workspace;
+      if (!session->admission->promote()) {
+        throw GatewayError("capacity");
+      }
       co_await connect(*session);
       const auto current = rules_.find(session->rule->id);
       if (!ready() || current == rules_.end() || current->second != *session->rule) {
@@ -483,6 +503,7 @@ private:
       session->decision.reason = reason.empty() ? "peer_closed" : reason;
       static_cast<void>(emit(session->decision));
     }
+    session->admission.reset();
     sessions_.erase(session->id);
   }
 
@@ -500,7 +521,8 @@ private:
       session->decision.started_at = std::chrono::system_clock::now();
       session->decision.source = tunnel::peer_address(session->incoming);
       session->source_ip = source_ip(session->incoming);
-      if (!ready() || sessions_.size() >= options_.max_sessions) {
+      session->admission = admission_.acquire(tunnel::source_address(session->incoming));
+      if (!ready() || !session->admission) {
         session->decision.decision = "deny";
         session->decision.reason =
             ready() ? "capacity" : (audit_ok_ ? "rules_unavailable" : "audit_unavailable");
@@ -515,6 +537,7 @@ private:
           },
           [this, session](std::exception_ptr) {
             session->close();
+            session->admission.reset();
             sessions_.erase(session->id);
             failed_ = true;
           })(serve(session));
@@ -628,6 +651,7 @@ private:
   corosio::tcp_acceptor listener_;
   corosio::tcp_acceptor health_;
   std::unique_ptr<tunnel::AuditSink> audit_;
+  Admission admission_;
   std::map<std::string, Rule> rules_;
   std::filesystem::file_time_type modified_{};
   std::uintmax_t file_size_ = 0;

@@ -10,10 +10,37 @@ workload -> egress gateway -> gateway DNS resolution -> named TCP destination
 ```
 
 The role does not accept a client-supplied resolved address. It resolves an authorized name itself
-and connects one endpoint returned by that lookup. An unauthorized name is refused before DNS,
-even when the workload resolved that name to the same address as an allowed name. The connected
+and checks every numeric endpoint returned by that lookup before connecting any of them. A single
+forbidden answer rejects the complete lookup with `destination_forbidden`, including mixed public
+and private answers. Both SNI and explicit routing use this check. The gateway connects one of the
+checked endpoints directly, without resolving the name again. An unauthorized name is refused
+before DNS, even when the workload resolved that name to the same address as an allowed name. The connected
 socket remains bound to that numeric endpoint for its lifetime. IPv4 and IPv6 literals are always
 refused by this role; CIDR `EgressRule`s are enforced directly by Cilium and do not use the gateway.
+
+## Resolved destination policy
+
+DNS rules permit public unicast destinations only. The gateway rejects IPv4 unspecified, private,
+shared (CGNAT), loopback, link-local, documentation, benchmarking, protocol-assignment,
+multicast and reserved ranges, plus Azure's platform address `168.63.129.16`. IPv4-mapped IPv6
+addresses receive the same IPv4 checks. IPv6 must be in `2000::/3`, excluding `2001::/23`,
+`2001:db8::/32`, `2002::/16` and `3fff::/20`; this also rejects unspecified, loopback,
+link-local, unique-local, multicast, NAT64 and other transition ranges. These conservative
+exclusions follow the [IANA IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/)
+and [IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/) special-purpose registries,
+including the anycast suballocations within the blocked protocol-assignment ranges.
+
+Each operator-projected rule may add `denied_cidrs` to exclude cluster API, node, pod and Service
+addresses that fall in otherwise public ranges. The operator must populate this field from trusted
+cluster inventory, including public API/node addresses and any deployment-specific translation
+prefixes. The field defaults to an empty list for existing projections. Standard private cluster
+ranges are always blocked, even when this list is empty; public-numbered cluster destinations
+require the projection or the operator's NetworkPolicy exceptions. Operator projection support is
+a follow-up. NetworkPolicy remains a second enforcement layer.
+
+This intentionally stops previously permitted DNS rules from reaching private destinations.
+HTTP redirects and application protocol targets are passed through unchanged; a new gateway
+connection must identify and authorize its own destination. The gateway does not follow redirects.
 
 ## Destination protocols
 
@@ -48,7 +75,8 @@ The operator publishes a complete JSON file by atomic replacement. A rule is the
       "workspace": "workspace-example",
       "source_ips": ["10.224.1.17", "10.224.1.18"],
       "dns_name": "api.example.com",
-      "ports": [443, 8443]
+      "ports": [443, 8443],
+      "denied_cidrs": ["203.0.113.7/32", "2001:db8:1::/48"]
     }
   ]
 }
@@ -59,6 +87,11 @@ wildcards are not supported. Source entries must be numeric IPv4 or IPv6 address
 lowercase canonical notation, workspace values use Kubernetes namespace syntax, ports cannot
 repeat, and two rules cannot authorize the same source/name/port tuple. Unknown or missing fields,
 duplicate JSON keys, duplicate rule IDs and malformed values reject the whole snapshot.
+
+`denied_cidrs` accepts at most 256 numeric IPv4 or IPv6 CIDRs per rule, each with an explicit
+prefix length and no host bits. Malformed lists reject the entire snapshot. IPv4-mapped IPv6
+CIDRs normalize to IPv4, so changing address notation cannot bypass an exclusion. Updating these
+exclusions changes the rule and closes its live sessions under the same reload contract.
 
 The file limit is 1 MiB, with at most 10,000 rules, 256 source IPs and 64 ports per rule, and eight
 JSON nesting levels. The gateway checks replacement metadata every two seconds and before each
@@ -79,7 +112,9 @@ explicit nonzero ports.
 | `--listen IP:PORT` | Workload listener; `0.0.0.0:7445` |
 | `--health-listen IP:PORT` | Private plain-HTTP probe listener; `127.0.0.1:8080` |
 | `--sni-port PORT` | Destination port inferred for TLS SNI traffic; `443` |
-| `--max-sessions N` | `128`; range 1–4096, including connections still identifying or resolving |
+| `--max-sessions N` | `128`; authorized sessions, range 1–4096 |
+| `--max-pending-sessions N` | `128`; separate setup budget, range 1–4096 |
+| `--max-pending-per-source N` | `32`; pending sockets per source IP, range 1–4096 |
 | `--audit FILE` | Append JSON lines to a file; `-` writes stdout and is the default |
 
 The gateway expects no certificates or private keys. Application TLS stays end-to-end between the
@@ -112,7 +147,7 @@ process credentials are never logged.
 | `event` / `role` | `egress_decision` / `egress` |
 | `timestamp` / `started_at` | UTC RFC3339 record and TCP-accept times |
 | `decision` | `allow` or `deny` |
-| `reason` | Fixed internal reason such as `rule_allowed`, `rule_absent`, `ip_literal`, `sni_required`, `invalid_request`, `dns_resolution`, `upstream_connect`, `capacity`, `setup_timeout` or `rules_unavailable` |
+| `reason` | Fixed internal reason such as `rule_allowed`, `rule_absent`, `ip_literal`, `sni_required`, `invalid_request`, `dns_resolution`, `destination_forbidden`, `upstream_connect`, `capacity`, `setup_timeout` or `rules_unavailable` |
 | `rule_id` / `workspace` | Authorizing projected rule, empty when no rule matched |
 | `source` | Numeric workload address and ephemeral port |
 | `dns_name` / `port` | Requested normalized name and destination port when parsing succeeded |
@@ -124,3 +159,13 @@ interface and depends on the record-ingestion contract tracked by zetta#1281; un
 operator must collect JSON lines without claiming they were durably written into Zetta.
 
 See [verification](egress/testing.md) for executable coverage.
+
+## Setup admission
+
+`--max-sessions` counts authorized sessions after the source, DNS name and port match a projected
+rule. Incomplete SNI and explicit-routing requests use a separate `--max-pending-sessions` budget
+(default 128), with `--max-pending-per-source` (32) limiting each socket source IP. Both options
+accept 1–4096. IPv4-mapped IPv6 sources share the corresponding IPv4 quota. The existing absolute
+ten-second setup deadline bounds occupancy even when bytes trickle in; probes have their own budget.
+`tunnel` and `peer` use the same admission accounting. `egress_pending_capacity` holds incomplete
+requests beyond the active limit and requires an authorized request to pass.

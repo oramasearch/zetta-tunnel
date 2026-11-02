@@ -138,7 +138,8 @@ std::map<std::string, Rule> read_rules(const std::filesystem::path &path) {
   std::map<std::string, Rule> rules;
   std::set<std::tuple<std::string, std::string, std::uint16_t>> routes;
   for (const auto &value : document.at("rules")) {
-    if (!value.is_object() || value.size() != 5 || !value.contains("id") ||
+    if (!value.is_object() || (value.size() != 5 && value.size() != 6) ||
+        (value.size() == 6 && !value.contains("denied_cidrs")) || !value.contains("id") ||
         !value.contains("workspace") || !value.contains("source_ips") ||
         !value.contains("dns_name") || !value.contains("ports")) {
       invalid("invalid rule fields");
@@ -152,6 +153,15 @@ std::map<std::string, Rule> read_rules(const std::filesystem::path &path) {
         value.at("source_ips").size() > 256 || !value.at("ports").is_array() ||
         value.at("ports").empty() || value.at("ports").size() > 64) {
       invalid("invalid rule identity, workspace, sources or ports");
+    }
+    if (value.contains("denied_cidrs")) {
+      const auto &denied = value.at("denied_cidrs");
+      if (!denied.is_array() || denied.size() > 256) {
+        invalid("invalid denied CIDR list");
+      }
+      for (const auto &cidr : denied) {
+        rule.denied_cidrs.push_back(parse_denied_cidr(cidr.get<std::string>()));
+      }
     }
     std::set<std::string> sources;
     for (const auto &source : value.at("source_ips")) {
@@ -218,6 +228,12 @@ Options parse_options(std::span<char *> args) {
   options.rules = take("--rules");
   options.audit = take("--audit", options.audit);
   options.max_sessions = number(take("--max-sessions", "128"));
+  options.max_pending_sessions = number(take("--max-pending-sessions", "128"));
+  options.max_pending_per_source = number(take("--max-pending-per-source", "32"));
+  if (options.max_pending_sessions < 1 || options.max_pending_sessions > 4096 ||
+      options.max_pending_per_source < 1 || options.max_pending_per_source > 4096) {
+    throw std::invalid_argument("pending limits must be in 1..4096");
+  }
   const auto sni_port = number(take("--sni-port", "443"));
   if (options.rules.empty() || options.max_sessions < 1 || options.max_sessions > 4096 ||
       sni_port == 0 || sni_port > 65535) {
@@ -236,6 +252,7 @@ void print_help(std::ostream &output) {
   output << "usage: zetta-tunnel egress --rules FILE [flags]\n"
          << "egress: [--listen IP:PORT] [--health-listen IP:PORT] [--audit FILE|-]\n"
          << "        [--max-sessions 128] [--sni-port 443]\n"
+         << "[--max-pending-sessions 128] [--max-pending-per-source 32]\n"
          << "See docs/egress.md for the rule, routing, and audit contracts.\n";
 }
 

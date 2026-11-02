@@ -21,6 +21,10 @@ namespaces; it is test infrastructure and is not linked into the binary or inclu
 production image. Mesh capture uses Linux kernel UAPI headers and the nftables netlink protocol
 directly, with no added library or executable.
 
+The egress integration fixture uses the platform's socket and dynamic-loader APIs, with no new
+third-party package. It is loaded only into test gateway processes and is not linked into,
+installed with or shipped in the application.
+
 The production image is `scratch` plus the static binary, so it ships no Alpine packages, shell,
 package manager or certificate bundle. The Dockerfile's separate `mesh-proof` target is test
 infrastructure and includes Python 3 and `iproute2`; it is not a release target or runtime
