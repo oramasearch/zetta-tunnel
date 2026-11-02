@@ -1,5 +1,6 @@
 """Exercise two peer gateways with real mutual TLS and overlapping service networks."""
 
+import calendar
 import contextlib
 import http.client
 import json
@@ -373,6 +374,30 @@ def pending_capacity(test):
         assert test.health("b", "/readyz") == 200
 
 
+def idle_listener(test):
+    test.start()
+    time.sleep(11)
+    connected_at = int(time.time())
+    context = ssl.create_default_context(cafile=test.directory / "workload-ca.pem")
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.load_cert_chain(test.directory / "peer-a.pem", test.directory / "peer-a.key")
+    connection = socket.create_connection(("127.0.0.1", test.peer_b), timeout=5)
+    connection.settimeout(5)
+    with connection:
+        # A distant peer: its handshake starts well after the 100 ms the old deadline left.
+        time.sleep(0.5)
+        secure = context.wrap_socket(connection, server_hostname="peer-b.test")
+        port = test.echo_b.server_address[1]
+        secure.sendall(f"ZTPR1 {PEER_ID} service-b {port}\n".encode())
+        assert receive(secure, 6) == b"ZTPA1\n"
+        secure.sendall(b"late")
+        assert receive(secure, 4) == b"late"
+    eventually(lambda: any(record["decision"] == "allow" for record in test.records("b")))
+    allowed = next(record for record in test.records("b") if record["decision"] == "allow")
+    started = calendar.timegm(time.strptime(allowed["started_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+    assert started >= connected_at - 1, allowed
+
+
 def capacity(test):
     test.start(max_sessions="1")
     with contextlib.ExitStack() as stack:
@@ -407,6 +432,7 @@ CASES = {
     "reload": reload,
     "invalid_reload": invalid_reload,
     "setup_timeout": setup_timeout,
+    "idle_listener": idle_listener,
     "capacity": capacity,
     "pending_capacity": pending_capacity,
     "audit_failure": audit_failure,

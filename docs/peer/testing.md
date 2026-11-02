@@ -13,6 +13,8 @@ path. The cases verify:
 - valid service removal and restoration, invalid projections and readiness recovery;
 - strict bounded configuration parsing;
 - TLS/request setup deadlines and combined import/export capacity;
+- a slow peer reaching a listener that sat idle past the setup deadline still connects, because
+  the deadline starts at acceptance;
 - audit-before-forwarding and audit sink failure closing the path;
 - health probes remaining responsive under stalled and full session sets;
 - all transport, developer-tunnel and egress cases for regressions.

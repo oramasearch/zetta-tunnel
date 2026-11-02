@@ -118,7 +118,7 @@ capacity is fixed by `--max-sessions` (default 128). Pending connections use a s
 `--max-pending-sessions` budget (128) and `--max-pending-per-source` share (32); both accept
 1–4096. These setup budgets cover both the public peer listener and private import listeners.
 Exports enter the active budget after mutual TLS and service authorization; imports do so after
-the remote service acknowledges setup. Deadlines begin at acceptance and progress never extends
+the remote service acknowledges setup. Deadlines and the decision record's `started_at` begin at acceptance, and progress never extends
 the ten-second setup deadline. Overflow is refused while probes remain responsive.
 
 TLS contexts are loaded at startup and refreshed every two seconds or on SIGHUP, outside accept
