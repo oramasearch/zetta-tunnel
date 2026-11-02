@@ -86,12 +86,15 @@ void test_flags() {
   const std::vector<std::string> base = {"egress", "--rules", "rules.json"};
   require(parse(base).listen == "0.0.0.0:7445");
   require(parse(base).sni_port == 443);
-  for (const auto &extra : std::vector<std::vector<std::string>>{{"--listen", "hostname:7445"},
-                                                                 {"--cert", "cert.pem"},
-                                                                 {"--rules", "again"},
-                                                                 {"--listen"},
-                                                                 {"--max-sessions", "0"},
-                                                                 {"--sni-port", "65536"}}) {
+  for (const auto &extra :
+       std::vector<std::vector<std::string>>{{"--listen", "hostname:7445"},
+                                             {"--cert", "cert.pem"},
+                                             {"--rules", "again"},
+                                             {"--listen"},
+                                             {"--max-sessions", "0"},
+                                             {"--max-pending-sessions", "0"},
+                                             {"--max-pending-per-source", "4097"},
+                                             {"--sni-port", "65536"}}) {
     auto values = base;
     values.insert(values.end(), extra.begin(), extra.end());
     refuses([&] {

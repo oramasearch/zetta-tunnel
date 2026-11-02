@@ -92,7 +92,9 @@ explicit nonzero ports.
 | `--peer-name DNS_OR_IP` | Required exact identity expected in the remote certificate |
 | `--listen IP:PORT` | Mutual-TLS gateway listener; `0.0.0.0:7446` |
 | `--health-listen IP:PORT` | Private plain-HTTP probe listener; `127.0.0.1:8080` |
-| `--max-sessions N` | `128`; range 1–4096 across imports and exports |
+| `--max-sessions N` | `128`; authorized sessions, range 1–4096 across imports and exports |
+| `--max-pending-sessions N` | `128`; separate setup budget, range 1–4096 |
+| `--max-pending-per-source N` | `32`; pending sockets per source IP, range 1–4096 |
 | `--audit FILE` | Append JSON lines to a file; `-` writes stdout and is the default |
 
 The local certificate must support both TLS client and server authentication and contain the exact
@@ -107,12 +109,22 @@ plain TCP and must remain private to their intended workloads and the platform, 
 ## Health, readiness and resources
 
 `GET /healthz` returns 200 while the event loop responds. `GET /readyz` returns 200 only while the
-peer projection and audit sink are usable. Other paths return 404. There are at most 16 probe
+peer projection, TLS credentials and audit sink are usable. Other paths return 404. There are at most 16 probe
 connections, a five-second probe deadline and a 4 KiB request-header limit.
 
 Each direction uses one 16 KiB copy buffer. A request buffers at most 512 bytes before the newline.
 TLS authentication, request authorization and target setup have a ten-second deadline. Session
-capacity is fixed by `--max-sessions`; overflow is refused while probes remain responsive. SIGINT
+capacity is fixed by `--max-sessions` (default 128). Pending connections use a separate
+`--max-pending-sessions` budget (128) and `--max-pending-per-source` share (32); both accept
+1–4096. These setup budgets cover both the public peer listener and private import listeners.
+Exports enter the active budget after mutual TLS and service authorization; imports do so after
+the remote service acknowledges setup. Deadlines begin at acceptance and progress never extends
+the ten-second setup deadline. Overflow is refused while probes remain responsive.
+
+TLS contexts are loaded at startup and refreshed every two seconds or on SIGHUP, outside accept
+handling. Streams retain their context snapshot. Invalid credentials fail readiness and refuse
+new traffic until a valid refresh. Source quotas use the normalized socket IP without its port;
+a proxy that hides client addresses shares one quota, so configure limits for that topology. SIGINT
 and SIGTERM close all listeners and sessions. Metrics are not implemented; decision records are
 the current observability interface.
 

@@ -24,6 +24,10 @@ SNI and explicit other-TCP routing. `zetta-tunnel peer` exchanges only projected
 over mutual TLS, including when the two sites use identical private addresses.
 `zetta-tunnel ingress` terminates mounted cert-manager TLS and routes hosts/paths to Services,
 with body limits, unbuffered streaming, WebSockets, HTTP/2, reloads, probes and metrics.
+Tunnel, egress, peer and ingress listeners separate pending setup capacity from established sessions,
+bound pending sockets per source, and keep setup deadlines independent of progress. Relay and
+peer streams share TLS contexts loaded outside accept handling; public ingress also bounds
+established connections and requests per source.
 `zetta-tunnel mesh` installs fail-closed Linux namespace capture and carries exact workload
 identities over mutual TLS while Cilium remains the policy enforcer.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,

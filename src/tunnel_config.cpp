@@ -289,6 +289,12 @@ Options parse_options(std::span<char *> args) {
   };
   options.tls = {take("--cert"), take("--key"), take("--ca")};
   options.max_sessions = number(take("--max-sessions", "128"));
+  options.max_pending_sessions = number(take("--max-pending-sessions", "128"));
+  options.max_pending_per_source = number(take("--max-pending-per-source", "32"));
+  if (options.max_pending_sessions < 1 || options.max_pending_sessions > 4096 ||
+      options.max_pending_per_source < 1 || options.max_pending_per_source > 4096) {
+    throw std::invalid_argument("pending limits must be in 1..4096");
+  }
   if (options.max_sessions < 1 || options.max_sessions > 4096 || options.tls.certificate.empty() ||
       options.tls.private_key.empty() || options.tls.certificate_authority.empty()) {
     invalid("cert, key, ca and a session limit in 1..4096 are required");
@@ -348,6 +354,7 @@ void print_help(std::ostream &output) {
          << "peer: see zetta-tunnel peer --help and docs/peer.md\n"
          << "ingress: see zetta-tunnel ingress --help and docs/ingress.md\n"
          << "mesh: see zetta-tunnel mesh --help and docs/mesh.md\n"
+         << "[--max-pending-sessions 128] [--max-pending-per-source 32]\n"
          << "See docs/tunnel.md for identity, grant, and audit contracts.\n";
 }
 

@@ -24,10 +24,21 @@ Use network policy to admit only declared backend Services and DNS. Keep probes 
 | `--listen IP:PORT` | `0.0.0.0:8443` | Public TLS; numeric IPv4 or bracketed IPv6 |
 | `--health-listen IP:PORT` | `127.0.0.1:8080` | Private plain HTTP probes and metrics |
 | `--audit FILE\|-` | `-` | Append JSON lines to a file, or stdout |
-| `--max-sessions N` | `128` | Public TCP connections including pending TLS; range 1–4096 |
+| `--max-sessions N` | `128` | Established TLS connections; range 1–4096 |
+| `--max-pending-sessions N` | `128` | Separate pending TLS budget; range 1–4096 |
+| `--max-pending-per-source N` | `32` | Pending TLS sockets per source IP; range 1–4096 |
+| `--max-sessions-per-source N` | `0` | Established connections per source; 0 selects max(4, max-sessions/4), otherwise 1–4096 |
+| `--max-requests-per-source N` | `0` | Requests per source across HTTP/1 and HTTP/2; 0 selects max(4, max-requests/4), otherwise 1–4096 |
 | `--max-requests N` | `256` | Backend requests across all connections; range 1–4096 |
 | `--idle-timeout-seconds N` | `60` | No-progress connection/request deadline; range 1–86400 |
 | `--setup-timeout-seconds N` | `10` | TLS, backend setup and HTTP/1 header deadline; range 1–300 |
+
+Pending TLS sockets cannot consume established connection capacity. Public TLS does not
+authenticate clients, so established connections and backend requests also have per-source shares.
+Body progress can extend idle deadlines within that share; long uploads and WebSockets keep their
+existing streaming behavior. Source quotas use the socket IP, normalize IPv4-mapped IPv6, and
+ignore forwarding headers. They distinguish clients only when the listener sees the real client IP;
+behind a shared proxy, raise the configurable shares to suit its traffic.
 
 There are no environment-variable overrides. Unknown, duplicate, empty or incomplete flags
 fail startup. `ingress --help` lists all flags. `SIGINT`/`SIGTERM` close listeners and traffic;
@@ -158,7 +169,7 @@ All metrics use the `zetta_ingress_` prefix:
 
 | Suffix | Type | Meaning |
 |---|---|---|
-| `ready`, `connections_active`, `requests_active` | gauge | Readiness and resource use |
+| `ready`, `connections_active`, `requests_active` | gauge | Readiness and resource use; connections include both pending and established sockets |
 | `connections_total`, `requests_total` | counter | Accepted TCP connections and parsed requests entering routing |
 | `request_errors_total`, `connection_errors_total` | counter | Failed requests and connection/protocol errors |
 | `capacity_rejections_total`, `timeouts_total` | counter | Refused connections and expired deadlines |

@@ -1,4 +1,5 @@
 #include "ingress.hpp"
+#include "admission.hpp"
 
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run_async.hpp>
@@ -122,6 +123,7 @@ struct Session {
   std::shared_ptr<const Configuration> configuration;
   std::string sni;
   std::string source;
+  std::unique_ptr<Admission::Ticket> admission;
   bool established = false;
   bool reading_headers = false;
 };
@@ -134,6 +136,7 @@ struct RequestState {
   std::uint64_t id;
   std::shared_ptr<Exchange> exchange;
   Clock::time_point deadline;
+  std::string source;
   bool connected = false;
   bool response_started = false;
   bool upload_done = false;
@@ -144,7 +147,11 @@ struct RequestState {
 class Runtime {
 public:
   explicit Runtime(const Options &options)
-      : options_(options), listener_(context_), health_listener_(context_) {
+      : options_(options), listener_(context_), health_listener_(context_),
+        admission_(options.max_sessions, options.max_pending_sessions,
+                   options.max_pending_per_source,
+                   options.max_sessions_per_source ? options.max_sessions_per_source
+                                                   : source_share(options.max_sessions)) {
     if (options.audit != "-") {
       audit_file_.open(options.audit, std::ios::app | std::ios::binary);
       if (!audit_file_) {
@@ -391,13 +398,20 @@ private:
   capy::task<> proxy(std::shared_ptr<Session> session, std::shared_ptr<Exchange> exchange,
                      Reader *http1_reader) {
     auto state = std::make_shared<RequestState>(context_, next_id_++, exchange);
+    state->source = session->source;
     unsigned error_status = 0;
     ++request_count_;
     try {
       validate_request(exchange->request, http1_reader == nullptr);
       state->upload_done = exchange->request.length == 0;
       if (!ready() || session->configuration != configuration_ ||
-          requests_.size() >= options_.max_requests) {
+          requests_.size() >= options_.max_requests ||
+          static_cast<std::size_t>(std::count_if(requests_.begin(), requests_.end(),
+                                                 [&session](const auto &item) {
+                                                   return item.second->source == session->source;
+                                                 })) >=
+              (options_.max_requests_per_source ? options_.max_requests_per_source
+                                                : source_share(options_.max_requests))) {
         throw Error(503);
       }
       if (exchange->request.host != session->sni) {
@@ -488,6 +502,10 @@ private:
       });
       wire.server_tls(session->configuration);
       co_await wire.handshake();
+      if (!session->admission->promote()) {
+        ++rejected_;
+        throw Error(503);
+      }
       session->sni = wire.sni();
       session->established = true;
       session->deadline = Clock::now() + std::chrono::seconds(options_.idle_timeout);
@@ -526,6 +544,7 @@ private:
       ++connection_errors_;
     }
     session->socket.close();
+    session->admission.reset();
     sessions_.erase(session->id);
   }
 
@@ -600,14 +619,13 @@ private:
         launch(health(session));
       } else {
         ++connections_;
-        if (!ready() || sessions_.size() >= options_.max_sessions) {
+        session->source = tunnel::source_address(session->socket);
+        session->admission = admission_.acquire(session->source);
+        if (!ready() || !session->admission) {
           ++rejected_;
           session->socket.close();
           continue;
         }
-        const auto endpoint = session->socket.remote_endpoint();
-        session->source = endpoint.is_v4() ? endpoint.v4_address().to_string()
-                                           : endpoint.v6_address().to_string();
         session->configuration = configuration_;
         session->deadline = Clock::now() + std::chrono::seconds(options_.setup_timeout);
         sessions_.emplace(session->id, session);
@@ -662,6 +680,7 @@ private:
   corosio::io_context context_;
   corosio::tcp_acceptor listener_;
   corosio::tcp_acceptor health_listener_;
+  Admission admission_;
   std::shared_ptr<const Configuration> configuration_;
   std::map<std::uint64_t, std::shared_ptr<Session>> sessions_;
   std::map<std::uint64_t, std::shared_ptr<Session>> health_;

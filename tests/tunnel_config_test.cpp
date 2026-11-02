@@ -114,6 +114,10 @@ void test_flags() {
                                              {"--cert", "again"},
                                              {"--listen"},
                                              {"--max-sessions", "0"},
+                                             {"--max-pending-sessions", "0"},
+                                             {"--max-pending-sessions", "4097"},
+                                             {"--max-pending-per-source", "0"},
+                                             {"--max-pending-per-source", "-1"},
                                              {"--max-sessions", "99999999999999"}}) {
     auto values = base;
     values.insert(values.end(), extra.begin(), extra.end());

@@ -58,3 +58,17 @@ ctest --test-dir build --output-on-failure
 Choose a fresh name and only remove the database created by that invocation. No Docker is used.
 Use the coordinator's Linux proof helper if available; otherwise record `Linux proof deferred`.
 Windows source portability is maintained, but a native Windows proof requires a Windows runner.
+
+## Admission regression checks
+
+`tunnel_pending_capacity`, `egress_pending_capacity`, `peer_pending_capacity` and `ingress_pending_capacity` hold incomplete
+TLS sockets beyond the configured active session limit, then require legitimate traffic to pass.
+The tunnel case covers relay and endpoint listeners; the peer case covers their shared
+import/export budget. `admission_budgets` checks independent global and per-source pending
+limits, atomic promotion, active source shares and release after refusal or disconnect.
+`ingress_source_fairness` uses two Linux loopback source addresses to verify pending, established
+and request quotas, including capacity left for the second source during incomplete uploads.
+It is skipped on other platforms. `tls_context_reuse` deletes credential files after loading a
+snapshot and constructs multiple streams from it, then requires an explicit reload to fail.
+`tunnel_credentials_reload` requires a malformed credential refresh to fail readiness and a valid
+replacement to restore forwarding. The ingress capacity case sets the new pending limit explicitly to retain its overflow assertion.

@@ -359,6 +359,20 @@ def setup_timeout(test):
         assert receive(connection, 5) == b"after"
 
 
+def pending_capacity(test):
+    test.start(max_sessions="1")
+    with contextlib.ExitStack() as stack:
+        for port in (test.peer_a, test.peer_b):
+            for _ in range(2):
+                sock = stack.enter_context(socket.create_connection(("127.0.0.1", port), timeout=3))
+                sock.sendall(b"\x16")
+        # The shared import/export budget must remain available.
+        with test.imported("a") as live:
+            live.sendall(b"available")
+            assert receive(live, 9) == b"available"
+        assert test.health("b", "/readyz") == 200
+
+
 def capacity(test):
     test.start(max_sessions="1")
     with contextlib.ExitStack() as stack:
@@ -394,6 +408,7 @@ CASES = {
     "invalid_reload": invalid_reload,
     "setup_timeout": setup_timeout,
     "capacity": capacity,
+    "pending_capacity": pending_capacity,
     "audit_failure": audit_failure,
 }
 

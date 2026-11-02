@@ -84,6 +84,10 @@ void test_flags() {
                                                                  {"--configuration", "again"},
                                                                  {"--listen"},
                                                                  {"--max-sessions", "0"},
+                                                                 {"--max-pending-sessions", "0"},
+                                                                 {"--max-pending-sessions", "4097"},
+                                                                 {"--max-pending-per-source", "0"},
+                                                                 {"--max-pending-per-source", "-1"},
                                                                  {"--peer-name", "bad_name"}}) {
     auto values = base;
     values.insert(values.end(), extra.begin(), extra.end());

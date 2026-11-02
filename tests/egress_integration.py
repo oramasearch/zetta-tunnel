@@ -335,6 +335,18 @@ def setup_timeout(test):
         assert receive(connection, len(payload)) == payload
 
 
+def pending_capacity(test):
+    test.start(max_sessions="1")
+    with contextlib.ExitStack() as stack:
+        for _ in range(2):
+            stalled = stack.enter_context(test.connection())
+            stalled.sendall(b"\x16")
+        connection, payload = test.explicit(payload=b"available")
+        with connection:
+            assert receive(connection, len(payload)) == payload
+        assert test.health("/readyz") == 200
+
+
 def capacity(test):
     test.start(max_sessions="2")
     with contextlib.ExitStack() as stack:
@@ -369,6 +381,7 @@ CASES = {
     "projected_reload": projected_reload,
     "setup_timeout": setup_timeout,
     "capacity": capacity,
+    "pending_capacity": pending_capacity,
     "audit_failure": audit_failure,
 }
 

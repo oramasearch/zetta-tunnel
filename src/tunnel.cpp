@@ -1,4 +1,5 @@
 #include "tunnel.hpp"
+#include "admission.hpp"
 
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/when_any.hpp>
@@ -69,6 +70,7 @@ struct Session {
   Time certificate_expires = Time::max();
   std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + 10s;
   AuditRecord record;
+  std::unique_ptr<Admission::Ticket> admission;
   bool started = false;
   std::string reason;
 
@@ -146,10 +148,12 @@ class Runtime {
 public:
   explicit Runtime(const Options &options)
       : options_(options), listener_(context_), health_(context_),
-        audit_(json_lines_sink(options.audit)) {
-    validate_credentials(options_.tls);
+        audit_(json_lines_sink(options.audit)),
+        admission_(options.max_sessions, options.max_pending_sessions,
+                   options.max_pending_per_source) {
+    tls_ = load_credentials(options_.tls);
     if (options_.role == "relay") {
-      validate_credentials(options_.endpoint_tls);
+      endpoint_tls_ = load_credentials(options_.endpoint_tls);
       reload(true);
     }
     listen(listener_, options_.listen);
@@ -181,7 +185,8 @@ private:
   }
 
   bool ready() const {
-    return !stopping && audit_ok_ && (options_.role != "relay" || grants_ok_);
+    return !stopping && tls_ && (options_.role != "relay" || endpoint_tls_) && audit_ok_ &&
+           (options_.role != "relay" || grants_ok_);
   }
 
   void emit(AuditRecord record) {
@@ -254,7 +259,7 @@ private:
   capy::task<> prepare(Session &session) {
     if (options_.role != "client") {
       session.incoming_tls =
-          std::make_unique<SecureStream>(session.incoming, options_.tls, true, options_.peer_name);
+          std::make_unique<SecureStream>(session.incoming, tls_, true, options_.peer_name);
       auto [error] = co_await session.incoming_tls->handshake();
       if (error) {
         throw transport::Error("tls_peer_refused");
@@ -268,13 +273,16 @@ private:
       upstream = options_.role == "client" ? options_.relay : options_.target;
       session.record.endpoint = upstream;
     }
+    if (!session.admission->promote()) {
+      throw transport::Error("capacity");
+    }
     co_await connect(context_, session.outgoing, parse_address(upstream));
     if (options_.role != "endpoint") {
-      const auto &files = options_.role == "client" ? options_.tls : options_.endpoint_tls;
+      const auto &credentials = options_.role == "client" ? tls_ : endpoint_tls_;
       const auto identity =
           options_.role == "client" ? options_.peer_name : "endpoint." + session.grant->id;
       session.outgoing_tls =
-          std::make_unique<SecureStream>(session.outgoing, files, false, identity);
+          std::make_unique<SecureStream>(session.outgoing, credentials, false, identity);
       auto [error] = co_await session.outgoing_tls->handshake();
       if (error) {
         throw transport::Error("upstream_tls_refused");
@@ -328,7 +336,7 @@ private:
             "grant_absent",     "grant_expired",        "certificate_exceeds_grant",
             "grant_issuer",     "certificate_identity", "certificate_lifetime",
             "tls_peer_refused", "upstream_connect",     "upstream_tls_refused",
-            "unavailable",      "audit_unavailable"};
+            "unavailable",      "audit_unavailable",    "capacity"};
         session->reason = std::find(reasons.begin(), reasons.end(), reason) != reasons.end()
                               ? reason
                               : "tls_configuration";
@@ -342,6 +350,7 @@ private:
     session->record.event = session->started ? "session_end" : "refusal";
     session->record.reason = session->reason;
     emit(session->record);
+    session->admission.reset();
     sessions_.erase(session->record.session_id);
   }
 
@@ -360,7 +369,8 @@ private:
       session->record.started_at = std::chrono::system_clock::now();
       session->record.role = options_.role;
       session->record.peer = peer_address(session->incoming);
-      if (!ready() || sessions_.size() >= options_.max_sessions) {
+      session->admission = admission_.acquire(source_address(session->incoming));
+      if (!ready() || !session->admission) {
         session->record.event = "refusal";
         session->record.reason = ready() ? "capacity" : "unavailable";
         emit(session->record);
@@ -374,6 +384,7 @@ private:
           },
           [this, session](std::exception_ptr) {
             session->close("session_error");
+            session->admission.reset();
             sessions_.erase(session->record.session_id);
             failed_ = true;
           })(serve(session));
@@ -480,6 +491,16 @@ private:
       if (reloading || now >= next_reload) {
         const bool force = reloading != 0;
         reloading = 0;
+        try {
+          auto next = load_credentials(options_.tls);
+          auto endpoint =
+              options_.role == "relay" ? load_credentials(options_.endpoint_tls) : TlsContext{};
+          tls_ = std::move(next);
+          endpoint_tls_ = std::move(endpoint);
+        } catch (...) {
+          tls_.reset();
+          endpoint_tls_.reset();
+        }
         reload(force);
         next_reload = now + 2s;
       }
@@ -496,6 +517,8 @@ private:
   corosio::tcp_acceptor listener_;
   corosio::tcp_acceptor health_;
   std::unique_ptr<AuditSink> audit_;
+  Admission admission_;
+  TlsContext tls_, endpoint_tls_;
   std::map<std::string, Grant> grants_;
   std::filesystem::file_time_type modified_{};
   std::uintmax_t file_size_ = 0;

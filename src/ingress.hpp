@@ -53,7 +53,11 @@ struct Options {
   std::string health_listen = "127.0.0.1:8080";
   std::string audit = "-";
   std::size_t max_sessions = 128;
+  std::size_t max_pending_sessions = 128;
+  std::size_t max_pending_per_source = 32;
   std::size_t max_requests = 256;
+  std::size_t max_sessions_per_source = 0;
+  std::size_t max_requests_per_source = 0;
   unsigned idle_timeout = 60;
   unsigned setup_timeout = 10;
 };

@@ -153,7 +153,7 @@ class Harness:
         self.start("endpoint", **self.tls_flags(endpoint_cert, "workload-ca"),
                    listen=self.address(self.endpoint), health_listen=self.address(self.endpoint_health),
                    peer_name="relay.workload", target=target or self.address(self.echo.server_address[1]),
-                   audit=str(self.directory / "endpoint.jsonl"))
+                   audit=str(self.directory / "endpoint.jsonl"), max_sessions=max_sessions)
         self.relay_process = self.start("relay", stdout=relay_stdout, **self.tls_flags("relay", "customer-cas"),
                    listen=self.address(self.relay), health_listen=self.address(self.relay_health),
                    grants=str(self.directory / "grants.json"),
@@ -324,6 +324,33 @@ def sighup(test):
         assert closed(connection)
 
 
+def credentials_reload(test):
+    test.start_stack()
+    test.roundtrip()
+    path = test.directory / "relay.key"
+    original = path.read_bytes()
+    path.write_text("invalid fixture key")
+    eventually(lambda: test.health(test.relay_health, "/readyz") == 503)
+    path.write_bytes(original)
+    eventually(lambda: test.health(test.relay_health, "/readyz") == 200)
+    test.roundtrip(b"reloaded")
+
+
+def pending_capacity(test):
+    test.start_stack(max_sessions="2")
+    with contextlib.ExitStack() as stack:
+        # Stalled unauthenticated sockets must not take established slots.
+        for port in (test.relay, test.endpoint):
+            for _ in range(3):
+                sock = stack.enter_context(socket.create_connection(("127.0.0.1", port), timeout=3))
+                sock.sendall(b"\x16")
+        for _ in range(2):
+            live = stack.enter_context(test.connection())
+            live.sendall(b"available")
+            assert receive(live, 9) == b"available"
+        assert test.health(test.relay_health, "/readyz") == 200
+
+
 def capacity(test):
     test.start_stack(max_sessions="2")
     with contextlib.ExitStack() as stack:
@@ -483,7 +510,7 @@ def postgres(test):
 
 CASES = {"roundtrip": roundtrip, "revoke": revoke, "expiry": expiry,
          "target_isolation": target_isolation, "invalid_reload": invalid_reload,
-         "sighup": sighup, "capacity": capacity, "postgres": postgres,
+         "pending_capacity": pending_capacity, "credentials_reload": credentials_reload, "sighup": sighup, "capacity": capacity, "postgres": postgres,
          "tls_boundaries": tls_boundaries, "backpressure": backpressure,
          "setup_timeout": setup_timeout, "projected_reload": projected_reload,
          "removed_file": removed_file, "grant_change": grant_change,

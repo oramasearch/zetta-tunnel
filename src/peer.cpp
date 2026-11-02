@@ -1,4 +1,5 @@
 #include "peer.hpp"
+#include "admission.hpp"
 
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/when_any.hpp>
@@ -125,6 +126,7 @@ struct Session {
   std::optional<Export> exported;
   Decision decision;
   std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + 10s;
+  std::unique_ptr<Admission::Ticket> admission;
   bool decision_written = false;
   std::string forced_reason;
 
@@ -348,8 +350,9 @@ class Runtime {
 public:
   explicit Runtime(const Options &options)
       : options_(options), peer_listener_(context_), health_listener_(context_),
-        audit_(options.audit) {
-    tunnel::validate_credentials(options_.tls);
+        audit_(options.audit), admission_(options.max_sessions, options.max_pending_sessions,
+                                          options.max_pending_per_source) {
+    tls_ = tunnel::load_credentials(options_.tls);
     listen(peer_listener_, options_.listen);
     listen(health_listener_, options_.health_listen);
     reload(true);
@@ -376,7 +379,7 @@ private:
   }
 
   bool ready() const {
-    return !stopping && audit_ok_ && configuration_ok_;
+    return !stopping && tls_ && audit_ok_ && configuration_ok_;
   }
 
   bool emit(const Decision &decision) {
@@ -500,8 +503,8 @@ private:
       } catch (const std::exception &) {
         throw PeerError("remote_connect");
       }
-      session->secure = std::make_unique<tunnel::SecureStream>(session->outgoing, options_.tls,
-                                                               false, options_.peer_name);
+      session->secure = std::make_unique<tunnel::SecureStream>(session->outgoing, tls_, false,
+                                                               options_.peer_name);
       auto [handshake_error] = co_await session->secure->handshake();
       if (handshake_error) {
         throw PeerError("tls_authentication");
@@ -517,6 +520,9 @@ private:
       reload(false);
       if (!current(*session)) {
         throw PeerError("configuration_changed");
+      }
+      if (!session->admission->promote()) {
+        throw PeerError("capacity");
       }
       session->decision.decision = "allow";
       session->decision.reason = "service_allowed";
@@ -540,14 +546,15 @@ private:
       session->decision.reason = reason.empty() ? "peer_closed" : reason;
       static_cast<void>(emit(session->decision));
     }
+    session->admission.reset();
     sessions_.erase(session->id);
   }
 
   capy::task<> serve_export(std::shared_ptr<Session> session) {
     std::string reason;
     try {
-      session->secure = std::make_unique<tunnel::SecureStream>(session->incoming, options_.tls,
-                                                               true, options_.peer_name);
+      session->secure =
+          std::make_unique<tunnel::SecureStream>(session->incoming, tls_, true, options_.peer_name);
       auto [handshake_error] = co_await session->secure->handshake();
       if (handshake_error) {
         throw PeerError("tls_authentication");
@@ -562,6 +569,9 @@ private:
       }
       session->configuration = *configuration_;
       session->exported = *service;
+      if (!session->admission->promote()) {
+        throw PeerError("capacity");
+      }
       session->decision.workspace = configuration_->workspace;
       session->decision.target = service->target;
       try {
@@ -609,6 +619,7 @@ private:
       session->decision.reason = reason.empty() ? "peer_closed" : reason;
       static_cast<void>(emit(session->decision));
     }
+    session->admission.reset();
     sessions_.erase(session->id);
   }
 
@@ -630,7 +641,9 @@ private:
         session->decision.workspace = configuration_->workspace;
       }
       session->imported = listener->service;
-      if (!ready() || sessions_.size() >= options_.max_sessions) {
+      session->deadline = std::chrono::steady_clock::now() + 10s;
+      session->admission = admission_.acquire(tunnel::source_address(session->incoming));
+      if (!ready() || !session->admission) {
         session->decision.decision = "deny";
         session->decision.reason = ready() ? "capacity" : "configuration_unavailable";
         static_cast<void>(emit(session->decision));
@@ -644,6 +657,7 @@ private:
           },
           [this, session](std::exception_ptr) {
             session->close();
+            session->admission.reset();
             sessions_.erase(session->id);
             failed_ = true;
           })(serve_import(session));
@@ -667,7 +681,9 @@ private:
         session->decision.peer_id = configuration_->id;
         session->decision.workspace = configuration_->workspace;
       }
-      if (!ready() || sessions_.size() >= options_.max_sessions) {
+      session->deadline = std::chrono::steady_clock::now() + 10s;
+      session->admission = admission_.acquire(tunnel::source_address(session->incoming));
+      if (!ready() || !session->admission) {
         session->decision.decision = "deny";
         session->decision.reason = ready() ? "capacity" : "configuration_unavailable";
         static_cast<void>(emit(session->decision));
@@ -681,6 +697,7 @@ private:
           },
           [this, session](std::exception_ptr) {
             session->close();
+            session->admission.reset();
             sessions_.erase(session->id);
             failed_ = true;
           })(serve_export(session));
@@ -772,6 +789,11 @@ private:
       if (reloading || now >= next_reload) {
         const bool force = reloading != 0;
         reloading = 0;
+        try {
+          tls_ = tunnel::load_credentials(options_.tls);
+        } catch (...) {
+          tls_.reset();
+        }
         reload(force);
         next_reload = now + 2s;
       }
@@ -789,6 +811,8 @@ private:
   corosio::tcp_acceptor peer_listener_;
   corosio::tcp_acceptor health_listener_;
   AuditSink audit_;
+  Admission admission_;
+  tunnel::TlsContext tls_;
   std::optional<Configuration> configuration_;
   std::filesystem::file_time_type modified_{};
   std::uintmax_t file_size_ = 0;
