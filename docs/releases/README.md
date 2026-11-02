@@ -10,6 +10,7 @@ tag names the digest already deployed and verified; it is never produced by a se
 
 | Release | Date | Summary |
 |---|---|---|
+| [v0.2.0](v0.2.0.md) | 2026-11-02 | Four security fixes (grants bound to their customer CA, separate pending admission, resolved egress addresses checked, pinned mesh namespaces) and the peer setup deadline that blocked the hub's distant clusters. The grants file and mesh projection change: the operator must follow (orama-operator#844, #869) |
 | [v0.1.0](v0.1.0.md) | 2026-10-15 | The first release: every role (client, relay, endpoint, egress, peer, ingress, mesh), the mutual TLS 1.3 transport, the private image and the portable tunnel clients |
 
 `CMakeLists.txt`'s `VERSION` is the one place the version is set; `zetta-tunnel --version` reports

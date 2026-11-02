@@ -36,8 +36,10 @@ namespace descriptor after checking the projected pod UID and namespace inode; t
 contract requires the paired operator projector update.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
-**Released as [v0.1.0](docs/releases/v0.1.0.md)** (2026-10-15): the private image
-`oramasearch/zetta-tunnel:v0.1.0` and portable tunnel clients for macOS arm64 and Linux amd64. The
+**Released as [v0.2.0](docs/releases/v0.2.0.md)** (2026-11-02): four security fixes from Lake's
+pre-launch review and the peer setup-deadline fix; the grants file and mesh projection change, so the
+operator must follow (orama-operator#844, #869). [v0.1.0](docs/releases/v0.1.0.md) (2026-10-15) was the
+first release, with the private image and portable tunnel clients for macOS arm64 and Linux amd64. The
 privileged Linux mesh proof passed on an AKS node. Ingress cluster deployment and the
 ingress-nginx load comparison are pending (orama-operator#473). The decided design is in
 the operator's secure-networking epic
