@@ -108,8 +108,8 @@ event-loop tick, without waiting for application traffic. Changes to workspace, 
 expiry also terminate existing sessions instead of retargeting them. An empty valid grant set
 is ready but authorizes nobody. Certificates, keys and CA bundles are loaded at startup and
 refreshed every two seconds or on SIGHUP, outside connection handling. Streams share each immutable TLS context snapshot. An invalid
-refresh refuses new traffic and fails readiness until valid files return. Existing streams retain
-their snapshot; restart after a CA rotation when existing TLS sessions must also be replaced.
+refresh refuses new traffic and fails readiness until valid files return. A changed or unusable
+credential also closes every existing stream (below), so no restart is needed after a rotation.
 
 ## Command-line configuration
 
