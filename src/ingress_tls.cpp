@@ -30,6 +30,11 @@ int select_host(SSL *ssl, int *alert, void *) noexcept {
       const auto found = configuration->hosts.find(lower(name));
       if (found != configuration->hosts.end() &&
           SSL_set_SSL_CTX(ssl, found->second.context.get())) {
+        // The connection was made from another host's context: take this host's client
+        // certificate requirement too (zetta-tunnel#34).
+        auto *selected = found->second.context.get();
+        SSL_set_verify(ssl, SSL_CTX_get_verify_mode(selected), nullptr);
+        SSL_set_verify_depth(ssl, SSL_CTX_get_verify_depth(selected));
         return SSL_TLSEXT_ERR_OK;
       }
     }
@@ -92,8 +97,19 @@ TlsContext server_context(const Host &host) {
                       X509_CHECK_FLAG_NEVER_CHECK_SUBJECT | X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS,
                       nullptr) == 1);
   require(X509_check_purpose(certificate, X509_PURPOSE_SSL_SERVER, 0) == 1);
-  // Public ingress authenticates the server; workload mutual TLS remains in the other roles.
-  SSL_CTX_set_verify(result.get(), SSL_VERIFY_NONE, nullptr);
+  if (host.client_ca.empty()) {
+    // Public ingress authenticates the server; workload mutual TLS remains in the other roles.
+    SSL_CTX_set_verify(result.get(), SSL_VERIFY_NONE, nullptr);
+  } else {
+    // An origin host: only a caller with a certificate from its client CA completes the handshake
+    // (zetta-tunnel#34).
+    require(SSL_CTX_load_verify_locations(result.get(), host.client_ca.c_str(), nullptr) == 1);
+    auto *names = SSL_load_client_CA_file(host.client_ca.c_str());
+    require(names != nullptr);
+    SSL_CTX_set_client_CA_list(result.get(), names);
+    SSL_CTX_set_verify(result.get(), SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+    SSL_CTX_set_verify_depth(result.get(), 6);
+  }
   SSL_CTX_set_tlsext_servername_callback(result.get(), select_host);
   SSL_CTX_set_alpn_select_cb(result.get(), select_protocol, nullptr);
   return result;
@@ -236,6 +252,11 @@ capy::task<> Wire::write(std::string_view data) {
 std::string Wire::sni() const {
   const auto *name = SSL_get_servername(ssl_.get(), TLSEXT_NAMETYPE_host_name);
   return name ? lower(name) : "";
+}
+
+bool Wire::client_verified() const {
+  return ssl_ && SSL_get0_peer_certificate(ssl_.get()) != nullptr &&
+         SSL_get_verify_result(ssl_.get()) == X509_V_OK;
 }
 
 bool Wire::http2() const {

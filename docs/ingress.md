@@ -53,6 +53,7 @@ fail startup. `ingress --help` lists all flags. `SIGINT`/`SIGTERM` close listene
       "name": "lake.example.com",
       "certificate": "certificates/lake/tls.crt",
       "key": "certificates/lake/tls.key",
+      "client_ca": "certificates/edge/origin-pull-ca.pem",
       "routes": [
         {
           "id": "lake-api",
@@ -109,8 +110,19 @@ match the leaf; the leaf must be currently valid for server authentication and i
 cover the configured host. A wildcard SAN may cover exact configured hosts. Public TLS uses
 TLS 1.3, selects a certificate by SNI, and negotiates `h2` or `http/1.1` through ALPN; absent ALPN
 uses HTTP/1.1. Missing/unknown SNI and unsupported ALPN fail the handshake. There is no fallback
-certificate or verification bypass. Clients verify the cert-manager chain and hostname; they
-do not need a client certificate. Tunnel/peer mutual TLS is unchanged.
+certificate or verification bypass. Clients verify the cert-manager chain and hostname. A host
+needs no client certificate unless it names `client_ca` (below). Tunnel/peer mutual TLS is unchanged.
+
+**Origin hosts: `client_ca`** (zetta-tunnel#34). A host that names `client_ca` (a PEM CA file, for
+example the edge's authenticated-origin-pull CA) requires a client certificate rooted in it: a
+caller without one, or with one from another CA, fails the handshake. This is the same check nginx
+`auth-tls` makes, so a host that requires an origin certificate is protected the same way at either
+gateway. A change to the CA file reloads the projection like a certificate change.
+
+**Edge attribution headers.** `CF-*` headers (`CF-Connecting-IP`, `CF-Ray` and the rest) and
+`True-Client-IP` reach the backend only from a caller that presented a verified client certificate.
+From anyone else they are removed, so a caller that reaches the gateway directly cannot claim an
+edge client address.
 
 HTTPS backends verify the configured CA chain, certificate validity, server purpose and
 `server_name` SAN. There is no insecure option. HTTP backends are an explicit plaintext hop
