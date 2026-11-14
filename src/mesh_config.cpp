@@ -238,10 +238,16 @@ Options parse_options(std::span<char *> args) {
   options.health_listen = take("--health-listen", options.health_listen);
   options.audit = take("--audit", options.audit);
   options.max_sessions = number(take("--max-sessions", "128"));
+  options.max_sessions_per_workload = number(take("--max-sessions-per-workload", "0"));
   options.setup_timeout = number(take("--setup-timeout", "10"));
+  options.idle_timeout = number(take("--idle-timeout", "300"));
   if (options.configuration.empty() || options.max_sessions < 1 || options.max_sessions > 4096 ||
-      options.setup_timeout < 1 || options.setup_timeout > 60) {
-    invalid("mesh configuration and bounded session/setup limits are required");
+      options.max_sessions_per_workload > options.max_sessions || options.setup_timeout < 1 ||
+      options.setup_timeout > 60 || options.idle_timeout < 1 || options.idle_timeout > 86400) {
+    invalid("mesh configuration and bounded session/setup/idle limits are required");
+  }
+  if (options.max_sessions_per_workload == 0) {
+    options.max_sessions_per_workload = std::max<std::size_t>(1, options.max_sessions / 4);
   }
   numeric_address(options.health_listen);
   if (!flags.empty()) {
@@ -253,7 +259,7 @@ Options parse_options(std::span<char *> args) {
 void print_help(std::ostream &output) {
   output << "usage: zetta-tunnel mesh --configuration FILE [flags]\n"
          << "mesh: [--health-listen IP:PORT] [--audit FILE|-] [--max-sessions 128]\n"
-         << "      [--setup-timeout 10]\n"
+         << "      [--max-sessions-per-workload 0] [--setup-timeout 10] [--idle-timeout 300]\n"
          << "See docs/mesh.md for projection, capture, TLS, probes and metrics.\n";
 }
 

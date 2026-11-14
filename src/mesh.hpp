@@ -46,7 +46,11 @@ struct Options {
   std::string health_listen = "127.0.0.1:8080";
   std::string audit = "-";
   std::size_t max_sessions = 128;
+  // One workload's share of max_sessions (LSR-177); 0 selects max(1, max_sessions / 4).
+  std::size_t max_sessions_per_workload = 0;
   unsigned setup_timeout = 10;
+  // An established session with no traffic either way for this long is closed (LSR-177).
+  unsigned idle_timeout = 300;
 };
 
 Configuration read_configuration(const std::filesystem::path &path);
