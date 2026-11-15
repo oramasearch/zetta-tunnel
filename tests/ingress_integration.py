@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 """Real TLS/HTTP gateway proofs; Python standard library only."""
 
 import base64

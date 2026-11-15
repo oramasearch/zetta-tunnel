@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+
 # Builds the tunnel clients Lake hands to developers (lake#745) into one folder:
 #   zetta-tunnel-<os>-<arch>, SHA256SUMS and VERSION.
 #

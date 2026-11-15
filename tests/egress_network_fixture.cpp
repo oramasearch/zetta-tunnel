@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Loaded only into integration-test gateway processes. Synthetic DNS answers stay numeric;
 // connect redirects the public fixture address to a local echo server and records every attempt.
 #include <arpa/inet.h>

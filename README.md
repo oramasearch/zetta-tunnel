@@ -134,3 +134,9 @@ library; the public header is [`include/zetta_tunnel/transport.hpp`](include/zet
   provider behind the tunnel kind.
 - [`oramasearch/lake`](https://github.com/oramasearch/lake) grants and shows tunnels.
 - Its image is `oramasearch/zetta-tunnel` on Docker Hub.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Third-party components and their licenses are in
+[THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). Contributions are welcome under the Developer
+Certificate of Origin; see [CONTRIBUTING.md](CONTRIBUTING.md).

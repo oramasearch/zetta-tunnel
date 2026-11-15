@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include "peer.hpp"
 
 #include <boost/corosio/ipv4_address.hpp>
