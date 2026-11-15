@@ -16,7 +16,12 @@ constexpr const char *public_fixture = "93.184.216.34";
 
 int fixture_getaddrinfo(const char *node, const char *service, const addrinfo *hints,
                         addrinfo **result) {
+#ifdef __APPLE__
+  // dyld does not interpose calls from the interposing image, so this is the real getaddrinfo.
+  static auto real = &::getaddrinfo;
+#else
   static auto real = reinterpret_cast<decltype(&getaddrinfo)>(dlsym(RTLD_NEXT, "getaddrinfo"));
+#endif
   if (!node || std::strcmp(node, "localhost") != 0) {
     return real(node, service, hints, result);
   }
@@ -57,7 +62,12 @@ int fixture_getaddrinfo(const char *node, const char *service, const addrinfo *h
 }
 
 int fixture_connect(int socket, const sockaddr *address, socklen_t size) {
+#ifdef __APPLE__
+  // dyld does not interpose calls from the interposing image, so this is the real connect.
+  static auto real = &::connect;
+#else
   static auto real = reinterpret_cast<decltype(&connect)>(dlsym(RTLD_NEXT, "connect"));
+#endif
   if (const auto *path = std::getenv("EGRESS_TEST_CONNECT_LOG")) {
     std::ofstream(path, std::ios::app) << "connect\n";
   }
