@@ -56,7 +56,7 @@ void test_grants(const std::filesystem::path &path) {
   const std::string grant =
       R"({"id":"11111111-1111-4111-8111-111111111111","workspace":"workspace-test","endpoint":"host:1234","expires_at":"2026-10-14T12:00:00Z","client_ca_sha256":[")" +
       fingerprint + R"("]})";
-  // A grant must name the customer CAs that may sign for it (LSR-074).
+  // A grant must name the customer CAs that may sign for it.
   auto with_cas = [](const std::string &cas) {
     return R"({"grants":[{"id":"11111111-1111-4111-8111-111111111111","workspace":"workspace-test","endpoint":"host:1234","expires_at":"2026-10-14T12:00:00Z")" +
            cas + "}]}";

@@ -244,7 +244,7 @@ private:
     }
     // The relay's --ca trusts every customer's CA. A grant is authorized only by a certificate
     // whose verified chain runs through one of the CAs bound to that grant, so a customer that
-    // holds its own CA key cannot sign for another customer's grant (LSR-074).
+    // holds its own CA key cannot sign for another customer's grant.
     const auto &allowed = grant->second.client_ca_sha256;
     if (std::none_of(certificate.issuer_sha256.begin(), certificate.issuer_sha256.end(),
                      [&allowed](const std::string &issuer) {

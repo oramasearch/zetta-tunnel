@@ -280,7 +280,7 @@ def refusal(test):
     assert test.records("refusal")[0]["bytes_up"] == 0
     if CASE == "other_customer_ca":
         # A certificate from another trusted customer CA names this grant and its expiry, and is
-        # still refused, because the grant is bound to its own customer's CA (LSR-074).
+        # still refused, because the grant is bound to its own customer's CA.
         assert test.records("refusal")[0]["reason"] == "grant_issuer", test.records("refusal")
 
 

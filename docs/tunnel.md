@@ -87,8 +87,7 @@ customer signed the certificate. Authorization then requires that one certificat
 chain above the leaf (an intermediate or the trust anchor) has a fingerprint the selected grant
 lists. Otherwise the connection is refused with reason `grant_issuer`, before any endpoint is
 contacted. A customer that holds its own CA key (for example after recovering it) and knows another
-customer's grant ID and expiry therefore still cannot open that grant's tunnel (LSR-074,
-[#28](https://github.com/oramasearch/zetta-tunnel/issues/28)). A grant without `client_ca_sha256`
+customer's grant ID and expiry therefore still cannot open that grant's tunnel. A grant without `client_ca_sha256`
 is a malformed snapshot, so a relay never falls back to trusting any CA in its bundle. Changing a
 grant's fingerprints is a grant change and ends its live sessions. Unknown/missing fields, duplicate JSON keys, duplicate grant IDs, invalid UUIDs,
 invalid namespaces and malformed addresses or dates reject the entire snapshot. Limits are

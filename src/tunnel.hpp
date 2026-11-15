@@ -17,7 +17,7 @@ struct Grant {
   Time expires;
   // SHA-256 fingerprints (lowercase hex of the DER certificate) of the customer CAs allowed to sign
   // this grant's developer certificates. The relay trusts the union of every customer's CA, so this
-  // binding is what keeps one customer's CA from authorizing another customer's grant (LSR-074).
+  // binding is what keeps one customer's CA from authorizing another customer's grant.
   std::vector<std::string> client_ca_sha256;
   bool operator==(const Grant &) const = default;
 };

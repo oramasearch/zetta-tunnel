@@ -8,8 +8,8 @@
 #   linked statically), and refused unless it loads only the system's own libraries.
 # - Linux amd64: the image's fully static binary, when BUILDKIT_ADDR names a BuildKit
 #   (kube-pod://<pod>?context=<ctx>&namespace=buildkit); its runtime stage is written out as files.
-# - With CLIENTS_IMAGE=docker.io/oramasearch/zetta-tunnel-clients:<tag>, the folder is also pushed as
-#   a private scratch image holding /clients/*, which Lake's image build copies from.
+# - With CLIENTS_IMAGE=<registry>/<org>/zetta-tunnel-clients:<tag>, the folder is also pushed as
+#   a scratch image holding /clients/*, which Lake's image build copies from.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 out=${1:-$root/dist/clients}

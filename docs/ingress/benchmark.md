@@ -20,7 +20,7 @@ standard-library integration harness; no additional Python packages are required
 
 ## Recorded native run
 
-Host: **Steves-MacBook-Pro.local**, arm64, macOS 14.6.1. Clang 22.1.8, OpenSSL 3.6.3,
+Host: a MacBook Pro, arm64, macOS 14.6.1. Clang 22.1.8, OpenSSL 3.6.3,
 nghttp2 1.68.0, Python 3.14.6. Default CMake static build, without a Release optimization preset.
 No container was used. No test suite or build was running concurrently within this work order.
 
