@@ -574,17 +574,24 @@ void send_all(int socket, const char *data, std::size_t size) {
   }
 }
 
-void forward(int plain, SSL *secure) {
+// Relays until either side closes, or until neither side sends anything for `idle_seconds`
+// (LSR-177): an established session never holds its slot forever.
+void forward(int plain, SSL *secure, unsigned idle_seconds) {
   std::array<char, 16384> buffer{};
   const int tls_socket = SSL_get_fd(secure);
+  const int idle_ms = static_cast<int>(idle_seconds) * 1000;
   while (!stopping) {
     std::array<pollfd, 2> descriptors{{{plain, POLLIN, 0}, {tls_socket, POLLIN, 0}}};
-    const int result = ::poll(descriptors.data(), descriptors.size(), -1);
+    const int result =
+        SSL_pending(secure) > 0 ? 1 : ::poll(descriptors.data(), descriptors.size(), idle_ms);
     if (result < 0 && errno == EINTR) {
       continue;
     }
     if (result <= 0) {
       break;
+    }
+    if (SSL_pending(secure) > 0) {
+      descriptors[1].revents |= POLLIN;
     }
     if (descriptors[0].revents & POLLIN) {
       const auto size = ::recv(plain, buffer.data(), buffer.size(), 0);
@@ -716,41 +723,86 @@ private:
     }
   }
 
+  static bool same_workload(const Workload &left, const Workload &right) {
+    return left.identity == right.identity && left.network_namespace == right.network_namespace &&
+           left.pod_uid == right.pod_uid &&
+           left.network_namespace_inode == right.network_namespace_inode &&
+           left.tls.certificate == right.tls.certificate &&
+           left.tls.private_key == right.tls.private_key &&
+           left.tls.certificate_authority == right.tls.certificate_authority &&
+           left.routes == right.routes && left.ports == right.ports;
+  }
+
+  // Builds one workload's runtime: capture, then both listeners. Throws with the step that failed.
+  static std::shared_ptr<Runtime> build_runtime(const Workload &workload, std::string &step) {
+    step = "TLS validation";
+    static_cast<void>(tls_context(workload.tls));
+    step = "namespace identity validation";
+    auto runtime = std::make_shared<Runtime>(workload);
+    step = "capture installation";
+    install_capture(*runtime->network_namespace);
+    step = "outbound listener 127.0.0.1:15001";
+    runtime->outbound.reset(listener(*runtime->network_namespace, "127.0.0.1", outbound_port));
+    step = "inbound listener 0.0.0.0:15008";
+    runtime->inbound.reset(listener(*runtime->network_namespace, "0.0.0.0", inbound_port));
+    return runtime;
+  }
+
+  void start_runtime(const std::shared_ptr<Runtime> &runtime) {
+    auto *value = runtime.get();
+    runtime->outbound_thread = std::jthread([this, value] {
+      accept_loop(value, true);
+    });
+    runtime->inbound_thread = std::jthread([this, value] {
+      accept_loop(value, false);
+    });
+  }
+
+  // LSR-178: a reload is per workload. A workload whose projection did not change keeps its
+  // listeners and its sessions; a removed or changed one is closed alone; and a workload that
+  // cannot be set up (a capture port taken inside its namespace, a bad certificate) is refused on
+  // its own, without touching any other workload's runtime. Only a projection that cannot be read
+  // refuses every workload.
   void reload(bool) {
     reloading = 0;
-    ready_ = false;
-    close_runtime();
-    close_sessions();
-    wait_for_sessions();
     std::string step = "projection read/validation";
     try {
       auto configuration = read_configuration(options_.configuration);
-      std::vector<std::shared_ptr<Runtime>> replacement;
-      for (const auto &workload : configuration.workloads) {
-        const auto context = "workload[" + std::to_string(replacement.size()) + "] ";
-        step = context + "TLS validation";
-        static_cast<void>(tls_context(workload.tls));
-        step = context + "namespace identity validation";
-        auto runtime = std::make_shared<Runtime>(workload);
-        step = context + "capture installation";
-        install_capture(*runtime->network_namespace);
-        step = context + "outbound listener 127.0.0.1:15001";
-        runtime->outbound.reset(listener(*runtime->network_namespace, "127.0.0.1", outbound_port));
-        step = context + "inbound listener 0.0.0.0:15008";
-        runtime->inbound.reset(listener(*runtime->network_namespace, "0.0.0.0", inbound_port));
-        replacement.push_back(std::move(runtime));
+      std::vector<std::shared_ptr<Runtime>> kept;
+      std::vector<std::shared_ptr<Runtime>> closing;
+      for (auto &runtime : runtimes_) {
+        const bool unchanged = std::ranges::any_of(
+            configuration.workloads,
+            [&runtime](const Workload &workload) { return same_workload(runtime->workload, workload); });
+        (unchanged ? kept : closing).push_back(std::move(runtime));
       }
-      step = "capture listener threads";
-      configuration_ = std::move(configuration);
-      runtimes_ = std::move(replacement);
-      for (const auto &runtime : runtimes_) {
-        auto *value = runtime.get();
-        runtime->outbound_thread = std::jthread([this, value] {
-          accept_loop(value, true);
+      runtimes_.clear();
+      for (const auto &runtime : closing) {
+        close_one(*runtime);
+      }
+      closing.clear();
+      configuration_ = configuration;
+      std::size_t index = 0;
+      for (const auto &workload : configuration.workloads) {
+        const auto existing = std::ranges::find_if(kept, [&workload](const auto &runtime) {
+          return same_workload(runtime->workload, workload);
         });
-        runtime->inbound_thread = std::jthread([this, value] {
-          accept_loop(value, false);
-        });
+        if (existing != kept.end()) {
+          runtimes_.push_back(*existing);
+          ++index;
+          continue;
+        }
+        std::string workload_step;
+        try {
+          auto runtime = build_runtime(workload, workload_step);
+          start_runtime(runtime);
+          runtimes_.push_back(std::move(runtime));
+        } catch (const std::exception &error) {
+          workload_failed(index, workload, workload_step, failure_detail(error));
+        } catch (...) {
+          workload_failed(index, workload, workload_step, "unknown exception");
+        }
+        ++index;
       }
       step = "projection modification time";
       modified_ = std::filesystem::last_write_time(options_.configuration);
@@ -763,6 +815,31 @@ private:
     } catch (...) {
       reload_failed(step, "unknown exception");
     }
+  }
+
+  void workload_failed(std::size_t index, const Workload &workload, std::string_view step,
+                       std::string_view detail) {
+    ++workload_failures_;
+    std::cerr << "zetta-tunnel: mesh workload[" << index << "] " << workload.identity
+              << " stage=" << step << ": " << detail
+              << "; refusing this workload's traffic, the others are unaffected\n";
+  }
+
+  // Closes one workload's listeners and its sessions.
+  void close_one(Runtime &runtime) {
+    ::shutdown(runtime.outbound.get(), SHUT_RDWR);
+    ::shutdown(runtime.inbound.get(), SHUT_RDWR);
+    runtime.outbound_thread.request_stop();
+    runtime.inbound_thread.request_stop();
+    if (runtime.outbound_thread.joinable()) {
+      runtime.outbound_thread.join();
+    }
+    if (runtime.inbound_thread.joinable()) {
+      runtime.inbound_thread.join();
+    }
+    runtime.outbound.reset();
+    runtime.inbound.reset();
+    close_sessions(runtime.workload.identity);
   }
 
   void reload_failed(std::string_view step, std::string_view detail) {
@@ -787,30 +864,49 @@ private:
     runtimes_.clear();
   }
 
-  bool reserve_session(int socket) {
-    auto count = sessions_.load();
-    while (count < options_.max_sessions) {
-      if (sessions_.compare_exchange_weak(count, count + 1)) {
-        const std::lock_guard lock(session_mutex_);
-        session_sockets_.insert(socket);
-        return true;
-      }
+  // A session slot for `workload` (LSR-177): at most max_sessions on the node and at most
+  // max_sessions_per_workload for any one workload, so one workload cannot take every slot.
+  bool reserve_session(const std::string &workload, int socket) {
+    const std::lock_guard lock(session_mutex_);
+    auto &held = session_sockets_[workload];
+    if (sessions_.load() >= options_.max_sessions ||
+        held.size() >= options_.max_sessions_per_workload) {
+      ++capacity_denials_;
+      return false;
     }
-    ++capacity_denials_;
-    return false;
+    held.insert(socket);
+    ++sessions_;
+    return true;
   }
 
-  void release_session(int socket) {
-    {
-      const std::lock_guard lock(session_mutex_);
-      session_sockets_.erase(socket);
+  void release_session(const std::string &workload, int socket) {
+    const std::lock_guard lock(session_mutex_);
+    const auto found = session_sockets_.find(workload);
+    if (found != session_sockets_.end()) {
+      found->second.erase(socket);
+      if (found->second.empty()) {
+        session_sockets_.erase(found);
+      }
     }
     --sessions_;
   }
 
   void close_sessions() {
     const std::lock_guard lock(session_mutex_);
-    for (const int socket : session_sockets_) {
+    for (const auto &[workload, sockets] : session_sockets_) {
+      for (const int socket : sockets) {
+        ::shutdown(socket, SHUT_RDWR);
+      }
+    }
+  }
+
+  void close_sessions(const std::string &workload) {
+    const std::lock_guard lock(session_mutex_);
+    const auto found = session_sockets_.find(workload);
+    if (found == session_sockets_.end()) {
+      return;
+    }
+    for (const int socket : found->second) {
       ::shutdown(socket, SHUT_RDWR);
     }
   }
@@ -831,7 +927,7 @@ private:
         }
         break;
       }
-      if (!reserve_session(accepted)) {
+      if (!reserve_session(runtime->workload.identity, accepted)) {
         ::close(accepted);
         continue;
       }
@@ -850,7 +946,7 @@ private:
           static_cast<void>(record("deny", "session_failure", workload, "", "", 0,
                                    outbound ? "outbound" : "inbound"));
         }
-        release_session(accepted);
+        release_session(workload.identity, accepted);
       }).detach();
     }
   }
@@ -912,7 +1008,7 @@ private:
     }
     socket_timeout(incoming, 0);
     socket_timeout(remote.get(), 0);
-    forward(incoming, secure.get());
+    forward(incoming, secure.get(), options_.idle_timeout);
   }
 
   void inbound_session(const Workload &workload, const PinnedNamespace &network_namespace,
@@ -952,7 +1048,7 @@ private:
     ssl_write_all(secure.get(), "ZTMA1\n");
     socket_timeout(incoming, 0);
     socket_timeout(target.get(), 0);
-    forward(target.get(), secure.get());
+    forward(target.get(), secure.get(), options_.idle_timeout);
   }
 
   std::string metrics() const {
@@ -968,7 +1064,10 @@ private:
            "\n# TYPE zetta_mesh_reloads_total counter\nzetta_mesh_reloads_total " +
            std::to_string(reloads_.load()) +
            "\n# TYPE zetta_mesh_reload_failures_total counter\nzetta_mesh_reload_failures_total " +
-           std::to_string(reload_failures_.load()) + "\n";
+           std::to_string(reload_failures_.load()) +
+           "\n# TYPE zetta_mesh_workload_failures_total counter\n"
+           "zetta_mesh_workload_failures_total " +
+           std::to_string(workload_failures_.load()) + "\n";
   }
 
   void health_loop() {
@@ -1024,13 +1123,14 @@ private:
   FileDescriptor health_socket_;
   std::jthread health_thread_;
   std::mutex session_mutex_;
-  std::set<int> session_sockets_;
+  std::map<std::string, std::set<int>> session_sockets_;
   std::atomic<std::size_t> sessions_ = 0;
   std::atomic<std::uint64_t> allows_ = 0;
   std::atomic<std::uint64_t> denials_ = 0;
   std::atomic<std::uint64_t> capacity_denials_ = 0;
   std::atomic<std::uint64_t> reloads_ = 0;
   std::atomic<std::uint64_t> reload_failures_ = 0;
+  std::atomic<std::uint64_t> workload_failures_ = 0;
   std::atomic<bool> ready_ = false;
   std::atomic<bool> audit_ok_ = true;
 };

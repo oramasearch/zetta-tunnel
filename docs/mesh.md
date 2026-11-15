@@ -123,9 +123,12 @@ identities are invalid.
 The file limit is 1 MiB, with at most 128 workloads, 256 routes per workload, 256 inbound ports per
 workload, 256 source identities per port and ten JSON nesting levels. An empty workload array is a
 valid ready node with no enrolled pods. The agent checks replacement metadata four times per second;
-SIGHUP forces a reload. Reload closes active sessions and listeners before applying the complete
-replacement. A missing, unreadable or invalid projection fails readiness and leaves capture rules
-in place.
+SIGHUP forces a reload. **A reload is per workload** (LSR-178, zetta-tunnel#30): a workload whose
+projection did not change keeps its listeners and sessions; a removed or changed workload's
+listeners and sessions are closed, alone; and a workload that cannot be set up (a capture port
+already taken inside its namespace, a certificate that does not load) is refused on its own, with a
+diagnostic, while every other workload keeps serving. A missing, unreadable or invalid projection
+fails readiness, closes every workload and leaves capture rules in place.
 
 ## Mesh protocol and certificates
 
@@ -162,22 +165,28 @@ missing-value and other-role flags fail startup.
 | `--configuration FILE` | Required operator projection |
 | `--health-listen IP:PORT` | Host-network plain HTTP probes and metrics; `127.0.0.1:8080` |
 | `--audit FILE` | Append JSON lines; `-` writes stdout and is the default |
-| `--max-sessions N` | Combined inbound/outbound limit; `128`, range 1–4096 |
+| `--max-sessions N` | Combined inbound/outbound limit for the node; `128`, range 1–4096 |
+| `--max-sessions-per-workload N` | One workload's share of `--max-sessions`; `0` selects max(1, max-sessions/4), otherwise at most `--max-sessions` (LSR-177) |
 | `--setup-timeout N` | Connect, TLS and preface deadline in seconds; `10`, range 1–60 |
+| `--idle-timeout N` | An established session with no traffic either way for N seconds is closed; `300`, range 1–86400 (LSR-177) |
 
 Inside every enrolled pod namespace, TCP 15001 is the loopback-only outbound capture port and TCP
 15008 is the mutual-TLS inbound port. Neither is configurable, so operator policy and probes have a
 stable contract. Port 15001 must never be exposed outside the namespace. Port 15008 is reachable
 only from source pods named by declared connections.
 
-`GET /healthz` returns 200 while the host listener responds. `GET /readyz` returns 200 only while
-the complete projection, all namespace capture/listeners, certificates and audit sink are usable.
+`GET /healthz` returns 200 while the host listener responds. `GET /readyz` returns 200 while the
+projection is loaded and the audit sink is usable. A workload that could not be set up does not
+make the node unready, so one workload cannot take the others down; it is counted in
+`zetta_mesh_workload_failures_total` and named on stderr.
 `GET /metrics` returns Prometheus text. Other paths return 404. The host-network probe listener must
 remain private to the platform.
 
 Metrics are `zetta_mesh_sessions`, `zetta_mesh_allows_total`, `zetta_mesh_denials_total`,
-`zetta_mesh_capacity_denials_total`, `zetta_mesh_reloads_total` and
-`zetta_mesh_reload_failures_total`. Session capacity is global. Each session uses one 16 KiB copy
+`zetta_mesh_capacity_denials_total`, `zetta_mesh_reloads_total`,
+`zetta_mesh_reload_failures_total` and `zetta_mesh_workload_failures_total`. Session capacity is
+shared by the node and capped per workload, so one workload's sessions never take every slot
+(zetta-tunnel#29); an idle session is closed after `--idle-timeout`. Each session uses one 16 KiB copy
 buffer and one detached worker; overflow closes the accepted socket while probes remain responsive.
 SIGINT and SIGTERM close listeners and sessions but do not remove namespace capture.
 
@@ -206,6 +215,6 @@ codes without certificate, key, file contents or OpenSSL error-data strings.
 
 Malformed JSON reports only its error ID and byte position, never the input snippet. Filesystem
 errors omit configured paths. Control characters are replaced and diagnostic detail is bounded.
-Readiness remains 503, listeners and sessions close, and installed capture stays in place on any
-reload failure. Startup failures before the probe listener opens exit with status 2 and a diagnostic.
+On a projection that cannot be read, readiness remains 503, every listener and session closes, and
+installed capture stays in place. A single workload's failure closes only that workload. Startup failures before the probe listener opens exit with status 2 and a diagnostic.
 See [netlink and diagnostics](mesh/netlink.md) for examples, wire contracts and troubleshooting.
