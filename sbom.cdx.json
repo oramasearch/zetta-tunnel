@@ -1,0 +1,199 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7",
+  "serialNumber": "urn:uuid:f88addad-b210-5b5e-b2f8-09d5b1a21ddd",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-15T17:25:30Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "tools/sbom.py"
+        },
+        {
+          "type": "application",
+          "name": "syft"
+        }
+      ]
+    },
+    "supplier": {
+      "name": "OramaSearch, Inc."
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "pkg:docker/alpine@sha256%3A5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8?package-id=Image-alpine-5c241c60bf6cf94c&tag=3.22",
+      "type": "library",
+      "name": "alpine",
+      "version": "3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8",
+      "purl": "pkg:docker/alpine@sha256%3A5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8?tag=3.22",
+      "properties": [
+        {
+          "name": "syft:package:type",
+          "value": "UnknownPackage"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:github/cppalliance/capy@ce1c7d710c4baaeeddb57fa101707c610f6eb975?package-id=Component-Boost.Capy-3bce0e447cd0e6a7",
+      "type": "library",
+      "name": "Boost.Capy",
+      "version": "ce1c7d710c4baaeeddb57fa101707c610f6eb975",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSL-1.0"
+          }
+        }
+      ],
+      "purl": "pkg:github/cppalliance/capy@ce1c7d710c4baaeeddb57fa101707c610f6eb975",
+      "properties": [
+        {
+          "name": "syft:package:type",
+          "value": "UnknownPackage"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:github/oramasearch/corosio@9f8e865a7b5728a4093e9345456bc077194dbeff?package-id=Component-Boost.Corosio-924e0313efaaca43",
+      "type": "library",
+      "name": "Boost.Corosio",
+      "version": "9f8e865a7b5728a4093e9345456bc077194dbeff",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSL-1.0"
+          }
+        }
+      ],
+      "purl": "pkg:github/oramasearch/corosio@9f8e865a7b5728a4093e9345456bc077194dbeff",
+      "properties": [
+        {
+          "name": "syft:package:type",
+          "value": "UnknownPackage"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:github/llvm/llvm-project@20%20%28Alpine%20clang20%29?package-id=Component-LLVM-libc-libc-abi-libunwind-compiler-rt-89591280e072b05c",
+      "type": "library",
+      "name": "LLVM libc++, libc++abi, libunwind, compiler-rt",
+      "version": "20 (Alpine clang20)",
+      "licenses": [
+        {
+          "expression": "Apache-2.0 WITH LLVM-exception"
+        }
+      ],
+      "purl": "pkg:github/llvm/llvm-project@20%20%28Alpine%20clang20%29",
+      "properties": [
+        {
+          "name": "syft:package:type",
+          "value": "UnknownPackage"
+        }
+      ]
+    },
+    {
+      "bom-ref": "Component-musl-libc-94575b3548a14e72",
+      "type": "library",
+      "name": "musl libc",
+      "version": "Alpine 3.22",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:github/nghttp2/nghttp2@1.61%20or%20newer%20%28system%20or%20Alpine%29?package-id=Component-nghttp2-01c681b03c83c23f",
+      "type": "library",
+      "name": "nghttp2",
+      "version": "1.61 or newer (system or Alpine)",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:github/nghttp2/nghttp2@1.61%20or%20newer%20%28system%20or%20Alpine%29",
+      "properties": [
+        {
+          "name": "syft:package:type",
+          "value": "UnknownPackage"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:github/nlohmann/json@3.12%20or%20newer%20%28system%29?package-id=Component-nlohmann-json-b7b21913e9ccc74a",
+      "type": "library",
+      "name": "nlohmann/json",
+      "version": "3.12 or newer (system)",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:github/nlohmann/json@3.12%20or%20newer%20%28system%29",
+      "properties": [
+        {
+          "name": "syft:package:type",
+          "value": "UnknownPackage"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:github/openssl/openssl@3.x%20%28system%20or%20Alpine%29?package-id=Component-OpenSSL-ec8e722611560a1d",
+      "type": "library",
+      "name": "OpenSSL",
+      "version": "3.x (system or Alpine)",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:github/openssl/openssl@3.x%20%28system%20or%20Alpine%29",
+      "properties": [
+        {
+          "name": "syft:package:type",
+          "value": "UnknownPackage"
+        }
+      ]
+    },
+    {
+      "bom-ref": "DocumentRoot",
+      "type": "library",
+      "name": "zetta-tunnel",
+      "version": "a23453dfe1bb",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "DocumentRoot",
+      "dependsOn": [
+        "Component-musl-libc-94575b3548a14e72",
+        "pkg:docker/alpine@sha256%3A5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8?package-id=Image-alpine-5c241c60bf6cf94c&tag=3.22",
+        "pkg:github/cppalliance/capy@ce1c7d710c4baaeeddb57fa101707c610f6eb975?package-id=Component-Boost.Capy-3bce0e447cd0e6a7",
+        "pkg:github/llvm/llvm-project@20%20%28Alpine%20clang20%29?package-id=Component-LLVM-libc-libc-abi-libunwind-compiler-rt-89591280e072b05c",
+        "pkg:github/nghttp2/nghttp2@1.61%20or%20newer%20%28system%20or%20Alpine%29?package-id=Component-nghttp2-01c681b03c83c23f",
+        "pkg:github/nlohmann/json@3.12%20or%20newer%20%28system%29?package-id=Component-nlohmann-json-b7b21913e9ccc74a",
+        "pkg:github/openssl/openssl@3.x%20%28system%20or%20Alpine%29?package-id=Component-OpenSSL-ec8e722611560a1d",
+        "pkg:github/oramasearch/corosio@9f8e865a7b5728a4093e9345456bc077194dbeff?package-id=Component-Boost.Corosio-924e0313efaaca43"
+      ]
+    }
+  ]
+}
