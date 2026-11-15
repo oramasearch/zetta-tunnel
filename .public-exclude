@@ -1,9 +1,4 @@
 # Paths kept out of the public export of this repository (gitignore syntax).
 # The public tree is exported from this branch without these paths; everything else must be fit to
-# publish. The maintainers' own agent instructions stay here and keep working for them; public
-# contributors read CONTRIBUTING.md instead.
-CLAUDE.md
-AGENTS.md
-.claude/
-.codex/
-.cursor/
+# publish. The agent files (CLAUDE.md, AGENTS.md, .claude/, .codex/, .cursor/) are never listed here:
+# they ship with the public repository.
