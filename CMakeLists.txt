@@ -187,7 +187,8 @@ foreach(ZETTA_TUNNEL_CASE
     long_lived certificate_bound expired_grant endpoint_identity relay_identity
     server_identity target_isolation invalid_reload sighup capacity postgres
     tls_boundaries backpressure setup_timeout projected_reload removed_file grant_change
-    audit_failure invalid_credentials pending_capacity credentials_reload)
+    audit_failure invalid_credentials pending_capacity credentials_reload
+    credentials_rotation)
   add_test(NAME tunnel_${ZETTA_TUNNEL_CASE}
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/tunnel_integration.py
       $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates> ${ZETTA_TUNNEL_CASE})
@@ -202,7 +203,8 @@ add_test(NAME ingress_http_validation COMMAND ingress_http_test)
 foreach(ZETTA_TUNNEL_INGRESS_CASE
     hosts routing tls body_limit streaming websocket http2 h2_streaming h2_reset upstream_tls
     reload certificate_reload config_validation capacity timeout headers keepalive audit_failure
-    h2_limits h2_backpressure h2_upload_flow projected_reload early_response slow_headers upstream_framing pending_capacity source_fairness)
+    h2_limits h2_backpressure h2_upload_flow projected_reload early_response slow_headers upstream_framing pending_capacity source_fairness
+    client_ca edge_headers)
   add_test(NAME ingress_${ZETTA_TUNNEL_INGRESS_CASE}
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/ingress_integration.py
       $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates> ${ZETTA_TUNNEL_INGRESS_CASE})
@@ -314,7 +316,8 @@ foreach(ZETTA_TUNNEL_PEER_CASE
     setup_timeout
     idle_listener
     capacity
-    audit_failure)
+    audit_failure
+    credentials_rotation)
   add_test(NAME peer_${ZETTA_TUNNEL_PEER_CASE}
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/peer_integration.py
       $<TARGET_FILE:zetta-tunnel> $<TARGET_FILE:tunnel_certificates>
