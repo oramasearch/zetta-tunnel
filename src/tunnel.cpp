@@ -152,6 +152,7 @@ public:
         admission_(options.max_sessions, options.max_pending_sessions,
                    options.max_pending_per_source) {
     tls_ = load_credentials(options_.tls);
+    credential_fingerprint_ = credentials_fingerprint();
     if (options_.role == "relay") {
       endpoint_tls_ = load_credentials(options_.endpoint_tls);
       reload(true);
@@ -445,6 +446,54 @@ private:
     }
   }
 
+  // Both credential sets this role uses, fingerprinted together (zetta-tunnel#37).
+  std::string credentials_fingerprint() const {
+    auto value = credential_fingerprint(options_.tls);
+    if (options_.role == "relay") {
+      value += credential_fingerprint(options_.endpoint_tls);
+    }
+    return value;
+  }
+
+  void close_all(std::string_view why) {
+    std::vector<std::shared_ptr<Session>> current;
+    for (const auto &[id, session] : sessions_) {
+      current.push_back(session);
+    }
+    for (const auto &session : current) {
+      session->close(why);
+    }
+  }
+
+  // zetta-tunnel#37: a rotated, removed or unreadable credential ends every session authorized
+  // under the old one before a new context is used; an unusable one refuses traffic until a valid
+  // refresh. A fresh SSL_CTX also drops the old one's resumption state.
+  void refresh_credentials() {
+    try {
+      auto fingerprint = credentials_fingerprint();
+      if (tls_ && fingerprint == credential_fingerprint_) {
+        return;
+      }
+      auto next = load_credentials(options_.tls);
+      auto endpoint =
+          options_.role == "relay" ? load_credentials(options_.endpoint_tls) : TlsContext{};
+      if (!credential_fingerprint_.empty()) {
+        close_all("credentials_changed");
+      }
+      tls_ = std::move(next);
+      endpoint_tls_ = std::move(endpoint);
+      credential_fingerprint_ = std::move(fingerprint);
+    } catch (...) {
+      if (tls_ || !credential_fingerprint_.empty()) {
+        close_all("credentials_unavailable");
+        std::cerr << "zetta-tunnel: credentials unavailable or invalid; refusing traffic\n";
+      }
+      tls_.reset();
+      endpoint_tls_.reset();
+      credential_fingerprint_.clear();
+    }
+  }
+
   void check_sessions() {
     std::vector<std::shared_ptr<Session>> current;
     for (const auto &[id, session] : sessions_) {
@@ -491,16 +540,7 @@ private:
       if (reloading || now >= next_reload) {
         const bool force = reloading != 0;
         reloading = 0;
-        try {
-          auto next = load_credentials(options_.tls);
-          auto endpoint =
-              options_.role == "relay" ? load_credentials(options_.endpoint_tls) : TlsContext{};
-          tls_ = std::move(next);
-          endpoint_tls_ = std::move(endpoint);
-        } catch (...) {
-          tls_.reset();
-          endpoint_tls_.reset();
-        }
+        refresh_credentials();
         reload(force);
         next_reload = now + 2s;
       }
@@ -519,6 +559,7 @@ private:
   std::unique_ptr<AuditSink> audit_;
   Admission admission_;
   TlsContext tls_, endpoint_tls_;
+  std::string credential_fingerprint_;
   std::map<std::string, Grant> grants_;
   std::filesystem::file_time_type modified_{};
   std::uintmax_t file_size_ = 0;
