@@ -147,7 +147,7 @@ class Harness:
         temporary.write_text(value)
         temporary.replace(self.directory / f"peer-{side}.json")
 
-    def start_side(self, side, max_sessions="128", audit_pipe=False):
+    def start_side(self, side, max_sessions="128", audit_pipe=False, credentials=None):
         if side == "a":
             listen_port = self.peer_a
             health_port = self.health_a
@@ -158,6 +158,11 @@ class Harness:
             health_port = self.health_b
             certificate = "peer-b"
             peer_name = "peer-a.test"
+        certificate_path, key_path, ca_path = credentials or (
+            self.directory / f"{certificate}.pem",
+            self.directory / f"{certificate}.key",
+            self.directory / "workload-ca.pem",
+        )
         log = open(self.directory / f"peer-{side}.log", "w+")
         self.logs.append(log)
         args = [
@@ -170,11 +175,11 @@ class Harness:
             "--configuration",
             str(self.directory / f"peer-{side}.json"),
             "--cert",
-            str(self.directory / f"{certificate}.pem"),
+            str(certificate_path),
             "--key",
-            str(self.directory / f"{certificate}.key"),
+            str(key_path),
             "--ca",
-            str(self.directory / "workload-ca.pem"),
+            str(ca_path),
             "--peer-name",
             peer_name,
             "--audit",
@@ -191,11 +196,11 @@ class Harness:
         eventually(lambda: self.health(side, "/readyz") == 200)
         return process
 
-    def start(self, max_sessions="128", audit_b=False):
+    def start(self, max_sessions="128", audit_b=False, credentials_b=None):
         for reservation in self.reservations:
             reservation.close()
         self.reservations.clear()
-        self.start_side("b", max_sessions=max_sessions, audit_pipe=audit_b)
+        self.start_side("b", max_sessions=max_sessions, audit_pipe=audit_b, credentials=credentials_b)
         self.start_side("a", max_sessions=max_sessions)
 
     def health(self, side, path):
@@ -413,6 +418,123 @@ def capacity(test):
     eventually(lambda: any(record["reason"] == "capacity" for record in test.records("a")))
 
 
+def project_credentials(test, generations):
+    """Lay out side b's credentials the way a projected volume does: each generation in its own
+    directory, ..data pointing at the current one, and the file names as symlinks through ..data."""
+    root = test.directory / "b-tls"
+    root.mkdir()
+    for name, files in generations.items():
+        directory = root / name
+        directory.mkdir()
+        for target, source in files.items():
+            (directory / target).write_bytes((test.directory / source).read_bytes())
+    (root / "..data").symlink_to("one")
+    for name in ("tls.crt", "tls.key", "ca.crt"):
+        (root / name).symlink_to("..data/" + name)
+    return root
+
+
+def swap_credentials(root, generation):
+    (root / "..next").symlink_to(generation)
+    (root / "..next").replace(root / "..data")
+
+
+def presented_certificate(test):
+    context = ssl.create_default_context(cafile=test.directory / "workload-ca.pem")
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.load_cert_chain(test.directory / "peer-a.pem", test.directory / "peer-a.key")
+    with socket.create_connection(("127.0.0.1", test.peer_b), timeout=5) as connection:
+        with context.wrap_socket(connection, server_hostname="peer-b.test") as secure:
+            return secure.getpeercert(binary_form=True)
+
+
+def certificate_der(test, name):
+    return ssl.PEM_cert_to_DER_cert((test.directory / f"{name}.pem").read_text())
+
+
+def live(test):
+    connection = test.imported("a")
+    connection.sendall(b"live")
+    assert receive(connection, 4) == b"live"
+    return connection
+
+
+def roundtrip_works(test, data):
+    try:
+        with test.imported("a") as connection:
+            connection.sendall(data)
+            return receive(connection, len(data)) == data
+    except (ConnectionError, OSError, TimeoutError, AssertionError):
+        return False
+
+
+def ended(connection, within=6):
+    """The gateway closed the connection within the time limit (a timeout is not a close)."""
+    connection.settimeout(within)
+    try:
+        return connection.recv(1) == b""
+    except TimeoutError:
+        return False
+    except (ConnectionError, ssl.SSLError):
+        return True
+
+
+def reasons(test):
+    return [record["reason"] for record in test.records("b")]
+
+
+def credentials_rotation(test):
+    root = project_credentials(test, {
+        "one": {"tls.crt": "peer-b.pem", "tls.key": "peer-b.key", "ca.crt": "workload-ca.pem"},
+        "two": {"tls.crt": "peer-b-rotated.pem", "tls.key": "peer-b-rotated.key", "ca.crt": "workload-ca.pem"},
+        "empty": {},
+    })
+    test.start(credentials_b=(root / "tls.crt", root / "tls.key", root / "ca.crt"))
+    assert presented_certificate(test) == certificate_der(test, "peer-b")
+
+    # Rotation: a new certificate behind the same paths (a projected-volume symlink swap) ends the
+    # sessions authorized under the old one, and new sessions use the new one.
+    established = live(test)
+    # A caller still in its handshake is a session too; its record carries the reason.
+    pending = socket.create_connection(("127.0.0.1", test.peer_b), timeout=5)
+    with established, pending:
+        swap_credentials(root, "two")
+        assert ended(established), "a session outlived its gateway's rotated certificate"
+        assert ended(pending)
+    eventually(lambda: "credentials_changed" in reasons(test))
+    eventually(lambda: roundtrip_works(test, b"rotated"))
+    assert presented_certificate(test) == certificate_der(test, "peer-b-rotated")
+    assert test.health("b", "/readyz") == 200
+
+    # Withdrawal: the files disappear. Every session ends, readiness fails and traffic is refused.
+    established = live(test)
+    pending = socket.create_connection(("127.0.0.1", test.peer_b), timeout=5)
+    with established, pending:
+        swap_credentials(root, "empty")
+        assert ended(established), "a session outlived its gateway's withdrawn credentials"
+        assert ended(pending)
+    eventually(lambda: "credentials_unavailable" in reasons(test))
+    eventually(lambda: test.health("b", "/readyz") == 503)
+    assert test.health("b", "/healthz") == 200
+    accepted = test.echo_b.accepted
+    with test.imported("a") as refused:
+        refused.sendall(b"must not pass")
+        assert ended(refused)
+    assert test.direct_request("peer-a", service="service-b")
+    time.sleep(2.5)  # past a refresh: still refused
+    assert test.health("b", "/readyz") == 503
+    with test.imported("a") as refused:
+        refused.sendall(b"must not pass")
+        assert ended(refused)
+    assert test.echo_b.accepted == accepted
+
+    # Restoration: valid credentials return and new sessions work again without a restart.
+    swap_credentials(root, "one")
+    eventually(lambda: test.health("b", "/readyz") == 200)
+    eventually(lambda: roundtrip_works(test, b"restored"))
+    assert presented_certificate(test) == certificate_der(test, "peer-b")
+
+
 def audit_failure(test):
     test.start(audit_b=True)
     process_b = test.processes[0]
@@ -438,6 +560,7 @@ CASES = {
     "capacity": capacity,
     "pending_capacity": pending_capacity,
     "audit_failure": audit_failure,
+    "credentials_rotation": credentials_rotation,
 }
 
 with tempfile.TemporaryDirectory(prefix="peer-test-", dir=Path.cwd()) as directory:

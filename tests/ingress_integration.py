@@ -245,8 +245,11 @@ class Harness:
         finally:
             connection.close()
 
-    def connect(self, host="lake.test", protocols=("http/1.1",), ca="server-ca.pem", tls12=False, source="127.0.0.1"):
+    def connect(self, host="lake.test", protocols=("http/1.1",), ca="server-ca.pem", tls12=False, source="127.0.0.1",
+                client=None):
         context = ssl.create_default_context(cafile=self.directory / ca)
+        if client:
+            context.load_cert_chain(self.directory / f"{client}.pem", self.directory / f"{client}.key")
         context.minimum_version = ssl.TLSVersion.TLSv1_2 if tls12 else ssl.TLSVersion.TLSv1_3
         if tls12:
             context.maximum_version = ssl.TLSVersion.TLSv1_2
@@ -258,8 +261,8 @@ class Harness:
             sock.close()
             raise
 
-    def request(self, path="/", host="lake.test", headers=None, method="GET", body=b""):
-        with self.connect(host) as sock:
+    def request(self, path="/", host="lake.test", headers=None, method="GET", body=b"", client=None):
+        with self.connect(host, client=client) as sock:
             fields = {"Host": host, "Content-Length": str(len(body)), "Connection": "close"}
             fields.update(headers or {})
             head = f"{method} {path} HTTP/1.1\r\n" + "".join(f"{k}: {v}\r\n" for k, v in fields.items()) + "\r\n"
@@ -813,6 +816,82 @@ def headers(test):
         response = http.client.HTTPResponse(sock)
         response.begin()
         assert response.status == 400
+
+
+def refused(test, host, client=None):
+    """The handshake, or the first read after it, fails and nothing reaches a backend."""
+    before = len(test.backend.requests)
+    try:
+        with test.connect(host, client=client) as sock:
+            # TLS 1.3 completes the client's side of the handshake before the server has checked the
+            # client certificate, so a refusal shows up on the first read.
+            sock.sendall(f"GET /refused HTTP/1.1\r\nHost: {host}\r\n\r\n".encode())
+            if not closed(sock):
+                return False
+    except (ssl.SSLError, ConnectionError):
+        pass
+    return len(test.backend.requests) == before
+
+
+def client_ca(test):
+    # lake.test is not the first host, so the connection starts in another host's context (one
+    # without a client CA) and SNI moves it to lake.test: the client certificate requirement must
+    # move with it.
+    (test.directory / "edge-ca.pem").write_bytes((test.directory / "workload-ca.pem").read_bytes())
+    test.config["hosts"][0]["client_ca"] = "edge-ca.pem"
+    test.project(test.config)
+    test.start()
+    assert refused(test, "lake.test"), "origin host accepted a caller without a client certificate"
+    assert refused(test, "lake.test", client="other"), "origin host accepted a certificate from another CA"
+    assert test.request("/origin", "lake.test", client="peer-a") == (200, b"backend:/origin")
+    # A host without a client CA still serves anyone, with or without a certificate.
+    assert test.request("/public", "apps.test") == (200, b"backend:/public")
+    # A rotated CA file is reloaded like a certificate: the old CA's clients are refused.
+    temporary = test.directory / "edge-ca.next"
+    temporary.write_bytes((test.directory / "other-ca.pem").read_bytes())
+    temporary.replace(test.directory / "edge-ca.pem")
+    eventually(lambda: test.request("/rotated", "lake.test", client="other")[0] == 200)
+    assert refused(test, "lake.test", client="peer-a")
+    assert refused(test, "lake.test")
+    # Moved to the first host (the starting context), the requirement holds there, and SNI to a
+    # host without one drops it again.
+    del test.config["hosts"][0]["client_ca"]
+    test.config["hosts"][1]["client_ca"] = "edge-ca.pem"
+    test.project(test.config)
+    eventually(lambda: test.request("/open", "lake.test")[0] == 200)
+    assert refused(test, "apps.test")
+    assert test.request("/apps", "apps.test", client="other") == (200, b"backend:/apps")
+
+
+EDGE_HEADERS = {"CF-Connecting-IP": "203.0.113.7", "CF-Ray": "8f00aa11bb22cc33-AMS",
+                "Cf-Visitor": '{"scheme":"https"}', "True-Client-IP": "203.0.113.8"}
+
+
+def edge_headers(test):
+    # apps.test is the edge's origin host; lake.test is reachable directly by anyone.
+    test.config["hosts"][1]["client_ca"] = "workload-ca.pem"
+    test.project(test.config)
+    test.start()
+    spoofed = {**EDGE_HEADERS, "Cfg-Mode": "kept"}
+    assert test.request("/direct", "lake.test", headers=spoofed)[0] == 200
+    forwarded = {k.lower(): v for k, v in test.backend.requests[-1][1].items()}
+    for name in EDGE_HEADERS:
+        assert name.lower() not in forwarded, f"{name} from an unverified caller reached the backend"
+    assert forwarded["x-forwarded-for"] == "127.0.0.1"
+    assert forwarded["cfg-mode"] == "kept"  # only the cf- prefix is the edge's
+    with contextlib.closing(H2(test)) as client:
+        client.request(1, "/direct-h2", headers=tuple((k.lower(), v) for k, v in EDGE_HEADERS.items()))
+        client.complete((1,))
+    forwarded = {k.lower(): v for k, v in test.backend.requests[-1][1].items()}
+    assert test.backend.requests[-1][0] == "/direct-h2"
+    for name in EDGE_HEADERS:
+        assert name.lower() not in forwarded, f"{name} from an unverified HTTP/2 caller reached the backend"
+    assert test.request("/edge", "apps.test", headers=EDGE_HEADERS, client="peer-a")[0] == 200
+    forwarded = {k.lower(): v for k, v in test.backend.requests[-1][1].items()}
+    for name, value in EDGE_HEADERS.items():
+        assert forwarded.get(name.lower()) == value, f"{name} from the verified edge was dropped"
+    # The gateway's own attribution still wins over the edge's X-Forwarded-For.
+    assert forwarded["x-forwarded-for"] == "127.0.0.1"
 
 
 def keepalive(test):

@@ -338,6 +338,61 @@ def credentials_reload(test):
     test.roundtrip(b"reloaded")
 
 
+def ended(connection, within=6):
+    """The relay closed the connection within the time limit (a timeout is not a close)."""
+    connection.settimeout(within)
+    try:
+        return connection.recv(1) == b""
+    except TimeoutError:
+        return False
+    except (ConnectionError, ssl.SSLError):
+        return True
+
+
+def replace_file(path, data):
+    temporary = path.with_name(path.name + ".next")
+    temporary.write_bytes(data)
+    temporary.replace(path)
+
+
+def credentials_rotation(test):
+    test.start_stack()
+    bundle = test.directory / "customer-cas.pem"
+    key = test.directory / "relay.key"
+    original_bundle, original_key = bundle.read_bytes(), key.read_bytes()
+
+    # Rotation: a changed CA bundle (a new customer CA added) ends every live session, recorded as
+    # credentials_changed, and new sessions run under the new context.
+    with test.connection() as connection:
+        connection.sendall(b"live")
+        assert receive(connection, 4) == b"live"
+        replace_file(bundle, original_bundle + (test.directory / "other-ca.pem").read_bytes())
+        assert ended(connection), "a session outlived the relay's rotated credentials"
+    eventually(lambda: any(record["reason"] == "credentials_changed" for record in test.records("session_end")))
+    eventually(lambda: test.health(test.relay_health, "/readyz") == 200)
+    test.roundtrip(b"rotated")
+
+    # Withdrawal: an unusable key ends every live session (credentials_unavailable), fails
+    # readiness and refuses new traffic.
+    with test.connection() as connection:
+        connection.sendall(b"live")
+        assert receive(connection, 4) == b"live"
+        replace_file(key, b"invalid fixture key")
+        assert ended(connection), "a session outlived the relay's withdrawn credentials"
+    eventually(lambda: any(record["reason"] == "credentials_unavailable" for record in test.records("session_end")))
+    eventually(lambda: test.health(test.relay_health, "/readyz") == 503)
+    accepted = test.echo.accepted
+    with test.connection() as refused:
+        refused.sendall(b"must not pass")
+        assert ended(refused)
+    assert test.echo.accepted == accepted
+
+    # Restoration: valid credentials return and new sessions work without a restart.
+    replace_file(key, original_key)
+    eventually(lambda: test.health(test.relay_health, "/readyz") == 200)
+    test.roundtrip(b"restored")
+
+
 def pending_capacity(test):
     test.start_stack(max_sessions="2")
     with contextlib.ExitStack() as stack:
@@ -512,7 +567,7 @@ def postgres(test):
 
 CASES = {"roundtrip": roundtrip, "revoke": revoke, "expiry": expiry,
          "target_isolation": target_isolation, "invalid_reload": invalid_reload,
-         "pending_capacity": pending_capacity, "credentials_reload": credentials_reload, "sighup": sighup, "capacity": capacity, "postgres": postgres,
+         "pending_capacity": pending_capacity, "credentials_reload": credentials_reload, "credentials_rotation": credentials_rotation, "sighup": sighup, "capacity": capacity, "postgres": postgres,
          "tls_boundaries": tls_boundaries, "backpressure": backpressure,
          "setup_timeout": setup_timeout, "projected_reload": projected_reload,
          "removed_file": removed_file, "grant_change": grant_change,
