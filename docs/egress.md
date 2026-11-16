@@ -73,7 +73,7 @@ The operator publishes a complete JSON file by atomic replacement. A rule is the
     {
       "id": "11111111-1111-4111-8111-111111111111",
       "workspace": "workspace-example",
-      "source_ips": ["10.224.1.17", "10.224.1.18"],
+      "source_ips": ["10.0.1.17", "10.0.1.18"],
       "dns_name": "api.example.com",
       "ports": [443, 8443],
       "denied_cidrs": ["203.0.113.7/32", "2001:db8:1::/48"]

@@ -74,8 +74,8 @@ only while its pod sandbox is enrolled on this node.
         },
         "routes": [
           {
-            "destination": "10.224.4.19:8080",
-            "mesh": "10.224.4.19:15008",
+            "destination": "10.0.4.19:8080",
+            "mesh": "10.0.4.19:15008",
             "identity": "worker.workspace-example.test"
           }
         ],

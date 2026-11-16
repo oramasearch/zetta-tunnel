@@ -1,0 +1,11 @@
+Copyright (c) 2026 OramaSearch, Inc.
+
+This project is licensed under the MIT License; the full text is in LICENSE.
+Every source file Orama wrote carries the tag `SPDX-License-Identifier: MIT`,
+added and kept current by tools/spdx-headers.py.
+
+Components written by others keep their own licenses. They are listed, with
+their license texts, in THIRD_PARTY_LICENSES.
+
+Contributions are accepted under the Contributor License Agreement in CLA.md,
+which assigns their copyright to OramaSearch, Inc.; see CONTRIBUTING.md.

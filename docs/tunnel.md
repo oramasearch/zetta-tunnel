@@ -87,8 +87,7 @@ customer signed the certificate. Authorization then requires that one certificat
 chain above the leaf (an intermediate or the trust anchor) has a fingerprint the selected grant
 lists. Otherwise the connection is refused with reason `grant_issuer`, before any endpoint is
 contacted. A customer that holds its own CA key (for example after recovering it) and knows another
-customer's grant ID and expiry therefore still cannot open that grant's tunnel (LSR-074,
-[#28](https://github.com/oramasearch/zetta-tunnel/issues/28)). A grant without `client_ca_sha256`
+customer's grant ID and expiry therefore still cannot open that grant's tunnel. A grant without `client_ca_sha256`
 is a malformed snapshot, so a relay never falls back to trusting any CA in its bundle. Changing a
 grant's fingerprints is a grant change and ends its live sessions. Unknown/missing fields, duplicate JSON keys, duplicate grant IDs, invalid UUIDs,
 invalid namespaces and malformed addresses or dates reject the entire snapshot. Limits are
@@ -108,8 +107,8 @@ event-loop tick, without waiting for application traffic. Changes to workspace, 
 expiry also terminate existing sessions instead of retargeting them. An empty valid grant set
 is ready but authorizes nobody. Certificates, keys and CA bundles are loaded at startup and
 refreshed every two seconds or on SIGHUP, outside connection handling. Streams share each immutable TLS context snapshot. An invalid
-refresh refuses new traffic and fails readiness until valid files return. Existing streams retain
-their snapshot; restart after a CA rotation when existing TLS sessions must also be replaced.
+refresh refuses new traffic and fails readiness until valid files return. A changed or unusable
+credential also closes every existing stream (below), so no restart is needed after a rotation.
 
 ## Command-line configuration
 
@@ -195,7 +194,16 @@ Byte counts exclude the `ZTUN1` preface and are cumulative through the event, no
 delivery acknowledgements. Reasons include `grant_absent`, `grant_expired`, `grant_removed`,
 `grant_changed`, `grant_issuer`, `certificate_identity`, `certificate_lifetime`, `certificate_exceeds_grant`,
 `tls_peer_refused`, `upstream_tls_refused`, `tls_configuration`, `upstream_connect`, `capacity`,
-`setup_timeout`, `peer_closed`, `shutdown`, `unavailable`, `audit_unavailable`, and `session_error`.
+`setup_timeout`, `peer_closed`, `shutdown`, `unavailable`, `audit_unavailable`, `credentials_changed`,
+`credentials_unavailable`, and `session_error`.
+
+**A rotated or withdrawn credential ends the sessions authorized under it** (zetta-tunnel#37). On every
+refresh the gateway fingerprints the certificate, key and CA files' contents (and, on a relay, the
+endpoint credentials), read through any symlink, so a projected-volume swap counts. When the
+fingerprint changes, every session closes with `credentials_changed` before the new context is used;
+when a file is missing, unreadable or invalid, every session closes with `credentials_unavailable`
+and new traffic is refused until a valid refresh. A new TLS context carries no resumption state from
+the old one.
 
 An audit failure disables readiness and new forwarding and cancels live sessions. A process restart
 is required after repairing the sink. A record cannot be guaranteed after the sink itself fails or

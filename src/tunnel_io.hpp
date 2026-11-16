@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #pragma once
 
 #include "zetta_tunnel/transport.hpp"
@@ -37,6 +39,10 @@ struct CertificateGrant {
 
 using TlsContext = std::shared_ptr<ssl_ctx_st>;
 TlsContext load_credentials(const transport::TlsFiles &files);
+// SHA-256 of the certificate, key and CA files' contents, read through any symlink, so a rotation
+// or a projected-volume symlink swap changes it. Throws when a file cannot be read
+// (zetta-tunnel#37). Holds no key material: only the digest is kept.
+std::string credential_fingerprint(const transport::TlsFiles &files);
 std::string source_address(const corosio::tcp_socket &socket);
 
 // Streaming TLS uses the same TLS 1.3/Corosio stack as the framed API.

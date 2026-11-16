@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include "mesh.hpp"
 
 #include "peer.hpp"

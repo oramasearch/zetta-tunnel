@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 
 usage() {
@@ -8,8 +10,13 @@ usage() {
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 RELEASE_TAG=${1:-}
-KUBE_CONTEXT=${KCTX:-orama-production-cluster-01}
-IMAGE_REPOSITORY=docker.io/oramasearch/zetta-tunnel
+# Required: KCTX, the kubectl context of the cluster that runs BuildKit, and IMAGE_REPOSITORY, the
+# repository to push to (for example docker.io/<org>/zetta-tunnel). Optional: BUILDKIT_NAMESPACE
+# (default buildkit) and REQUIRE_PRIVATE_REPOSITORY=1, which checks that an anonymous Docker Hub
+# lookup of IMAGE_REPOSITORY still answers 404 after the push.
+KUBE_CONTEXT=${KCTX:?set KCTX to the kubectl context of the cluster that runs BuildKit}
+IMAGE_REPOSITORY=${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY, for example docker.io/<org>/zetta-tunnel}
+BUILDKIT_NAMESPACE=${BUILDKIT_NAMESPACE:-buildkit}
 BUILD_LOG_DIR=${BUILD_LOG_DIR:-"$ROOT/build/image-logs"}
 
 [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || usage
@@ -53,10 +60,10 @@ PROJECT_VERSION=$(awk '$1 == "VERSION" { print $2; exit }' "$ROOT/CMakeLists.txt
 SHORT_COMMIT=$(git -C "$ROOT" rev-parse --short=7 HEAD)
 IMAGE_TAG="main-$SHORT_COMMIT"
 IMAGE="$IMAGE_REPOSITORY:$IMAGE_TAG"
-BUILDKIT_POD=$(kubectl --context "$KUBE_CONTEXT" get pods -n buildkit \
+BUILDKIT_POD=$(kubectl --context "$KUBE_CONTEXT" get pods -n "$BUILDKIT_NAMESPACE" \
   -o jsonpath='{.items[0].metadata.name}')
 [[ -n "$BUILDKIT_POD" ]] || {
-  echo "no BuildKit pod found in namespace buildkit" >&2
+  echo "no BuildKit pod found in namespace $BUILDKIT_NAMESPACE" >&2
   exit 1
 }
 
@@ -64,7 +71,7 @@ mkdir -p "$BUILD_LOG_DIR"
 LOG_FILE="$BUILD_LOG_DIR/build-$IMAGE_TAG.log"
 METADATA_FILE="$BUILD_LOG_DIR/build-$IMAGE_TAG.json"
 
-if ! buildctl --addr "kube-pod://$BUILDKIT_POD?context=$KUBE_CONTEXT&namespace=buildkit" \
+if ! buildctl --addr "kube-pod://$BUILDKIT_POD?context=$KUBE_CONTEXT&namespace=$BUILDKIT_NAMESPACE" \
   build \
   --frontend dockerfile.v0 \
   --local context="$ROOT" \
@@ -81,12 +88,15 @@ then
   exit 1
 fi
 
-HTTP_CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-  https://hub.docker.com/v2/repositories/oramasearch/zetta-tunnel/)
-[[ "$HTTP_CODE" == 404 ]] || {
-  echo "anonymous Docker Hub repository request returned $HTTP_CODE, expected 404" >&2
-  exit 3
-}
+if [[ "${REQUIRE_PRIVATE_REPOSITORY:-0}" == 1 ]]; then
+  HUB_PATH=${IMAGE_REPOSITORY#docker.io/}
+  HTTP_CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    "https://hub.docker.com/v2/repositories/$HUB_PATH/")
+  [[ "$HTTP_CODE" == 404 ]] || {
+    echo "anonymous Docker Hub repository request returned $HTTP_CODE, expected 404" >&2
+    exit 3
+  }
+fi
 
 DIGEST=$(python3 - "$METADATA_FILE" <<'PY'
 import json

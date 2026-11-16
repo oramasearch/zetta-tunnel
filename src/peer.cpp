@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include "peer.hpp"
 #include "admission.hpp"
 
@@ -353,6 +355,7 @@ public:
         audit_(options.audit), admission_(options.max_sessions, options.max_pending_sessions,
                                           options.max_pending_per_source) {
     tls_ = tunnel::load_credentials(options_.tls);
+    credential_fingerprint_ = tunnel::credential_fingerprint(options_.tls);
     listen(peer_listener_, options_.listen);
     listen(health_listener_, options_.health_listen);
     reload(true);
@@ -400,14 +403,40 @@ private:
     import_listeners_.clear();
   }
 
-  void close_sessions() {
+  void close_sessions(std::string_view reason = "configuration_changed") {
     std::vector<std::shared_ptr<Session>> current;
     for (const auto &[id, session] : sessions_) {
       current.push_back(session);
     }
     for (const auto &session : current) {
-      session->forced_reason = "configuration_changed";
+      session->forced_reason = reason;
       session->close();
+    }
+  }
+
+  // zetta-tunnel#37: a rotated, removed or unreadable credential ends every session authorized
+  // under the old one before a new context is used; an unusable one refuses traffic until a valid
+  // refresh. A fresh SSL_CTX also drops the old one's resumption state.
+  void refresh_credentials() {
+    std::string fingerprint;
+    try {
+      fingerprint = tunnel::credential_fingerprint(options_.tls);
+      if (tls_ && fingerprint == credential_fingerprint_) {
+        return;
+      }
+      auto next = tunnel::load_credentials(options_.tls);
+      if (!credential_fingerprint_.empty()) {
+        close_sessions("credentials_changed");
+      }
+      tls_ = std::move(next);
+      credential_fingerprint_ = std::move(fingerprint);
+    } catch (...) {
+      if (tls_ || !credential_fingerprint_.empty()) {
+        close_sessions("credentials_unavailable");
+        std::cerr << "zetta-tunnel: peer credentials unavailable or invalid; refusing traffic\n";
+      }
+      tls_.reset();
+      credential_fingerprint_.clear();
     }
   }
 
@@ -794,11 +823,7 @@ private:
       if (reloading || now >= next_reload) {
         const bool force = reloading != 0;
         reloading = 0;
-        try {
-          tls_ = tunnel::load_credentials(options_.tls);
-        } catch (...) {
-          tls_.reset();
-        }
+        refresh_credentials();
         reload(force);
         next_reload = now + 2s;
       }
@@ -818,6 +843,7 @@ private:
   AuditSink audit_;
   Admission admission_;
   tunnel::TlsContext tls_;
+  std::string credential_fingerprint_;
   std::optional<Configuration> configuration_;
   std::filesystem::file_time_type modified_{};
   std::uintmax_t file_size_ = 0;

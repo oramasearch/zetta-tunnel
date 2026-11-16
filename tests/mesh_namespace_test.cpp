@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Exercise the production Linux namespace operations without requiring setns privileges.
 #include "../src/mesh_linux.cpp"
 

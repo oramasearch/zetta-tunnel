@@ -122,8 +122,13 @@ the remote service acknowledges setup. Deadlines and the decision record's `star
 the ten-second setup deadline. Overflow is refused while probes remain responsive.
 
 TLS contexts are loaded at startup and refreshed every two seconds or on SIGHUP, outside accept
-handling. Streams retain their context snapshot. Invalid credentials fail readiness and refuse
-new traffic until a valid refresh. Source quotas use the normalized socket IP without its port;
+handling. **A rotated or withdrawn credential ends the sessions authorized under it**
+(zetta-tunnel#37): the gateway fingerprints the certificate, key and CA files' contents through any
+symlink; a changed fingerprint closes every session (`credentials_changed`) before the new context
+is used, and a missing or invalid credential closes every session (`credentials_unavailable`), fails
+readiness and refuses new traffic until a valid refresh. The peer writes its audit record at setup, so
+these reasons are recorded only for sessions still in setup; an established session is closed
+without a further record (#55). Source quotas use the normalized socket IP without its port;
 a proxy that hides client addresses shares one quota, so configure limits for that topology. SIGINT
 and SIGTERM close all listeners and sessions. Metrics are not implemented; decision records are
 the current observability interface.
@@ -141,7 +146,7 @@ Payloads, certificate contents and process credentials are never logged.
 | `timestamp` / `started_at` | UTC RFC3339 record and local TCP-accept times |
 | `session_id` | Process-local integer connection identifier |
 | `decision` | `allow` or `deny` |
-| `reason` | Fixed reason such as `service_allowed`, `service_absent`, `remote_denied`, `tls_authentication`, `target_connect`, `capacity`, `setup_timeout`, `configuration_changed` or `configuration_unavailable` |
+| `reason` | Fixed reason such as `service_allowed`, `service_absent`, `remote_denied`, `tls_authentication`, `target_connect`, `capacity`, `setup_timeout`, `configuration_changed`, `configuration_unavailable`, `credentials_changed` or `credentials_unavailable` |
 | `peer_id` / `workspace` | Projected peer row and workspace when available |
 | `direction` | `import` on the initiating side or `export` on the target side |
 | `service` / `port` | Requested normalized service and port when available |

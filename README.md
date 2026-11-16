@@ -10,13 +10,13 @@
 The Orama operator manages each of these as an abstract kind with a provider behind it, the way a
 `KubernetesCluster` is backed by an `AksCluster`. zetta-tunnel is the provider Orama owns: it runs
 inside our clusters, inside a customer's own cluster, and with no internet access at all, and it is
-licensed so that Orama can sell it. Third-party tunnel services can sit behind the same kind as
+open source under the MIT License. Third-party tunnel services can sit behind the same kind as
 other providers, where their terms allow.
 
 ## Status
 
 **The transport, developer tunnel, DNS-name egress, peer and ingress gateways, mesh node agent,
-and private amd64 image and release workflow are built.**
+and amd64 image and release workflow are built.**
 `zetta-tunnel client`, `relay`, and `endpoint` provide grant-certificate authentication,
 one-target forwarding, live revocation/expiry and JSON-lines audit. `zetta-tunnel egress`
 authorizes workload source IPs, exact DNS names and ports from operator-projected rules, with HTTPS
@@ -36,27 +36,27 @@ namespace descriptor after checking the projected pod UID and namespace inode; t
 contract requires the paired operator projector update.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
-**Released as [v0.2.0](docs/releases/v0.2.0.md)** (2026-11-02): four security fixes from Lake's
-pre-launch review and the peer setup-deadline fix; the grants file and mesh projection change, so the
-operator must follow (orama-operator#844, #869). [v0.1.0](docs/releases/v0.1.0.md) (2026-10-15) was the
-first release, with the private image and portable tunnel clients for macOS arm64 and Linux amd64. The
-privileged Linux mesh proof passed on an AKS node. Ingress cluster deployment and the
-ingress-nginx load comparison are pending (orama-operator#473). The decided design is in
-the operator's secure-networking epic
-([orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437)) and Lake's
-([lake#724](https://github.com/oramasearch/lake/issues/724)). How the roles fit together, and with Lake and the operator: [`docs/architecture.md`](docs/architecture.md).
+**Released as [v0.3.0](docs/releases/v0.3.0.md)** (2026-11-15): a rotated or withdrawn credential
+ends its sessions, an ingress host can require the edge's client certificate, and the MIT licence.
+[v0.2.0](docs/releases/v0.2.0.md) (2026-11-02) brought four security fixes and the peer
+setup-deadline fix; its grants file and mesh projection changes need the operator to follow.
+[v0.1.0](docs/releases/v0.1.0.md) (2026-10-15) was the first release, with the image and portable
+tunnel clients for macOS arm64 and Linux amd64. The privileged Linux mesh proof passed on an AKS
+node. Ingress cluster deployment and the ingress-nginx load comparison are pending. The design is
+the Orama operator's secure-networking design
+([`docs/infrastructure/secure-networking.md`](https://github.com/oramasearch/orama-operator/blob/dev/docs/infrastructure/secure-networking.md)).
+How the roles fit together, and with Lake and the operator: [`docs/architecture.md`](docs/architecture.md).
 See
 [`docs/transport.md`](docs/transport.md), [`docs/tunnel.md`](docs/tunnel.md),
 [`docs/egress.md`](docs/egress.md), [`docs/peer.md`](docs/peer.md),
 [`docs/ingress.md`](docs/ingress.md), [`docs/mesh.md`](docs/mesh.md) and
 [`docs/image.md`](docs/image.md).
-Private repository; proprietary to Orama.
+MIT License; see [License](#license).
 
 ## Why it exists
 
-Steve, 2026-10-13: *"our instinct is to implement our own c++ components, so that's probably the
-best path for customization, flexibility, observability"*, and 2026-10-14: *"let's just create a new
-c++ project (private) ... let's call it zetta-tunnel"*.
+Orama builds its own C++ components where it can, because that gives the most room for
+customization, flexibility and observability. zetta-tunnel is that choice for the network layer.
 
 The research behind it is in the operator repository,
 [`docs/research/secure-networking/`](https://github.com/oramasearch/orama-operator/tree/dev/docs/research/secure-networking):
@@ -71,7 +71,7 @@ The research behind it is in the operator repository,
 
 ## What it has to do
 
-From the epic and the decided design:
+From the design:
 
 - A developer authenticates as themselves and opens a tunnel to **one** service, app or deployment;
   nothing else in the workspace is reachable through it.
@@ -81,9 +81,9 @@ From the epic and the decided design:
   declared, narrow network policy.
 - It runs without any outside service, behind restricted Pod Security in the workspace.
 - Possibly, later: service-addressed links between clusters or to a customer's network, whose
-  addresses overlap ours (every AKS cluster today uses `10.224.0.0/12`).
+  addresses overlap the cluster's own (two AKS clusters commonly use the same pod range).
 
-**As the mesh** (Steve, 2026-10-14: *"d7 and d8 are zetta-tunnel too"*):
+**As the mesh** (the design's decisions D7 and D8 are carried by zetta-tunnel too):
 - Connections between workloads carry identity and mutual TLS, without changing the workloads,
   which stay under restricted Pod Security with no `NET_ADMIN`.
 - It must fail closed: traffic that escapes capture escapes the policy. Istio ambient's CNI plugin
@@ -92,7 +92,7 @@ From the epic and the decided design:
 
 **As the ingress:**
 - Traffic enters a cluster through it. It terminates TLS with certificates cert-manager issues
-  ([orama-operator#457](https://github.com/oramasearch/orama-operator/issues/457)) and routes each
+  and routes each
   host to its Service, replacing ingress-nginx, which is retired upstream.
 
 **Decided and implemented:** TLS 1.3 over Corosio, Lake-issued grant certificates,
@@ -124,17 +124,21 @@ cmake --install build --prefix ~/.local  # or ~/.local/bin/zetta-tunnel, without
 Build out of the source tree, as above. CMake refuses a build inside it, which would leave CMake's files
 in the checkout and in the Capy and Corosio submodules.
 
-Release images are built without a local container engine on the cluster BuildKit lane. See
-[Image and releases](docs/image.md).
+Release images are built without a local container engine, on a BuildKit pod in a Kubernetes
+cluster. See [Image and releases](docs/image.md).
 
 The build produces the `zetta_tunnel_transport` library. Set `BUILD_SHARED_LIBS=ON` for a shared
 library; the public header is [`include/zetta_tunnel/transport.hpp`](include/zetta_tunnel/transport.hpp).
 
 ## Where it sits
 
-- [`oramasearch/zetta-bridge`](https://github.com/oramasearch/zetta-bridge) vendors it as
-  `modules/zetta-tunnel`, beside Zetta.
 - [`oramasearch/orama-operator`](https://github.com/oramasearch/orama-operator) runs it, as the
   provider behind the tunnel kind.
 - [`oramasearch/lake`](https://github.com/oramasearch/lake) grants and shows tunnels.
-- Its image is the private Docker Hub repository `oramasearch/zetta-tunnel`.
+- Its image is `oramasearch/zetta-tunnel` on Docker Hub.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Third-party components and their licenses are in
+[THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). Contributions are welcome under the
+[Contributor License Agreement](CLA.md); see [CONTRIBUTING.md](CONTRIBUTING.md).

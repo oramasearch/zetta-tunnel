@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-KUBE_CONTEXT=${KCTX:-orama-production-cluster-01}
+# Required: KCTX, the kubectl context of a cluster with a BuildKit pod and a Linux node that may run
+# a privileged pod, and IMAGE_REPOSITORY, the repository the proof image is pushed to.
+KUBE_CONTEXT=${KCTX:?set KCTX to the kubectl context of the cluster that runs BuildKit}
+IMAGE_REPOSITORY=${IMAGE_REPOSITORY:?set IMAGE_REPOSITORY, for example docker.io/<org>/zetta-tunnel}
+BUILDKIT_NAMESPACE=${BUILDKIT_NAMESPACE:-buildkit}
 DOCKER_CONFIGURATION=${DOCKER_CONFIG:-"$HOME/.docker"}
 SHORT_COMMIT=$(git -C "$ROOT" rev-parse --short=7 HEAD)
 PROJECT_VERSION=$(awk '$1 == "VERSION" { print $2; exit }' "$ROOT/CMakeLists.txt")
 PROOF_TAG=${1:-"mesh-proof-$SHORT_COMMIT"}
-IMAGE="docker.io/oramasearch/zetta-tunnel:$PROOF_TAG"
+IMAGE="$IMAGE_REPOSITORY:$PROOF_TAG"
 BUILD_LOG_DIR=${BUILD_LOG_DIR:-"$ROOT/build/image-logs"}
 NAMESPACE="zetta-tunnel-proof-$SHORT_COMMIT"
 PULL_SECRET=zetta-tunnel-proof-registry
@@ -35,17 +41,17 @@ done
   exit 2
 }
 
-BUILDKIT_POD=$(kubectl --context "$KUBE_CONTEXT" get pods -n buildkit \
+BUILDKIT_POD=$(kubectl --context "$KUBE_CONTEXT" get pods -n "$BUILDKIT_NAMESPACE" \
   -o jsonpath='{.items[0].metadata.name}')
 [[ -n "$BUILDKIT_POD" ]] || {
-  echo "no BuildKit pod found in namespace buildkit" >&2
+  echo "no BuildKit pod found in namespace $BUILDKIT_NAMESPACE" >&2
   exit 1
 }
 
 mkdir -p "$BUILD_LOG_DIR"
 LOG_FILE="$BUILD_LOG_DIR/build-$PROOF_TAG.log"
 
-if ! buildctl --addr "kube-pod://$BUILDKIT_POD?context=$KUBE_CONTEXT&namespace=buildkit" \
+if ! buildctl --addr "kube-pod://$BUILDKIT_POD?context=$KUBE_CONTEXT&namespace=$BUILDKIT_NAMESPACE" \
   build \
   --frontend dockerfile.v0 \
   --local context="$ROOT" \

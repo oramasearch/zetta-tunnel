@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include "mesh_netlink.hpp"
 
 #include <algorithm>

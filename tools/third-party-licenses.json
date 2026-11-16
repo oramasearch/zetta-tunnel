@@ -1,0 +1,24 @@
+{
+  "repository": "zetta-tunnel",
+  "preamble": "The default build links OpenSSL and nghttp2 from the system. The portable build\n(-DZETTA_TUNNEL_PORTABLE=ON) and the container image (Dockerfile, FROM scratch after an Alpine\nbuild stage) link them statically, together with musl libc and LLVM's libc++, libc++abi,\nlibunwind and compiler-rt, so those are listed too. The versions of system and Alpine packages are\nthe ones installed where the binary is built; the license texts below are taken at the version\nnamed.",
+  "components": [
+    {"name": "Boost.Capy", "submodule": "modules/capy", "license": "BSL-1.0", "use": "submodule, linked statically",
+     "source": "https://github.com/cppalliance/capy", "github": "cppalliance/capy"},
+    {"name": "Boost.Corosio (Orama's fork)", "submodule": "modules/corosio", "license": "BSL-1.0",
+     "use": "submodule, linked statically", "source": "https://github.com/cppalliance/corosio (upstream)",
+     "github": "oramasearch/corosio"},
+    {"name": "nlohmann/json", "version": "3.12 or newer (system)", "license": "MIT", "use": "header-only, from the system",
+     "source": "https://github.com/nlohmann/json", "github": "nlohmann/json", "ref": "v3.12.0", "path": "LICENSE.MIT"},
+    {"name": "OpenSSL", "version": "3.x (system or Alpine)", "license": "Apache-2.0",
+     "use": "linked; statically in the portable build and the image", "source": "https://github.com/openssl/openssl",
+     "github": "openssl/openssl", "ref": "openssl-3.5.0", "path": "LICENSE.txt"},
+    {"name": "nghttp2", "version": "1.61 or newer (system or Alpine)", "license": "MIT",
+     "use": "linked; statically in the portable build and the image", "source": "https://github.com/nghttp2/nghttp2",
+     "github": "nghttp2/nghttp2", "ref": "v1.65.0", "path": "COPYING"},
+    {"name": "musl libc", "version": "Alpine 3.22", "license": "MIT", "use": "linked statically in the image only",
+     "source": "https://musl.libc.org", "url": "https://git.musl-libc.org/cgit/musl/plain/COPYRIGHT?h=v1.2.5"},
+    {"name": "LLVM libc++, libc++abi, libunwind, compiler-rt", "version": "20 (Alpine clang20)",
+     "license": "Apache-2.0 WITH LLVM-exception", "use": "linked statically in the image only",
+     "source": "https://github.com/llvm/llvm-project", "github": "llvm/llvm-project", "ref": "llvmorg-20.1.0", "path": "libcxx/LICENSE.TXT"}
+  ]
+}

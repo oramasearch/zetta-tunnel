@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
@@ -106,6 +108,7 @@ int main(int argc, char **argv) {
     issue(directory, "long-lived", &tunnel_ca, uri, 86400);
     issue(directory, "peer-a", &workload_ca, "DNS:peer-a.test");
     issue(directory, "peer-b", &workload_ca, "DNS:peer-b.test");
+    issue(directory, "peer-b-rotated", &workload_ca, "DNS:peer-b.test");
     issue(directory, "wrong-peer", &workload_ca, "DNS:wrong-peer.test");
     issue(directory, "mesh-source", &workload_ca, "DNS:source.workspace.test");
     issue(directory, "mesh-destination", &workload_ca, "DNS:destination.workspace.test");

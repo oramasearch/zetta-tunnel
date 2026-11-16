@@ -29,8 +29,11 @@ ctest --test-dir build --output-on-failure
 The tests use local sockets only. On Linux/macOS, `egress_network_fixture` is loaded only into
 the gateway child process: it gives `localhost` deterministic numeric DNS answers, records every
 connect attempt, maps the public fixture address to the local echo server and refuses external
-connections. It supplies no policy override. Existing forwarding, reload, admission and audit
-checks therefore still exercise the production executable through the new address policy.
+connections. On Linux it is loaded with `LD_PRELOAD` and reaches the real `getaddrinfo` and
+`connect` through `dlsym(RTLD_NEXT, ...)`. On macOS it is loaded with `DYLD_INSERT_LIBRARIES`
+and replaces them through `__interpose`; there it calls the originals by name, because dyld does
+not interpose calls made from the interposing image. It supplies no policy override. Existing
+forwarding, reload, admission and audit checks therefore still exercise the production executable through the new address policy.
 The forbidden-destination checks require `destination_forbidden` and no connect attempts; the
 mixed-answer check puts a usable public answer first to catch early-connect bypasses. The
 classification unit test covers range endpoints, mapped encodings and projected IPv4/IPv6 CIDRs.

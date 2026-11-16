@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include "tunnel_io.hpp"
 
 #include <boost/capy/cond.hpp>
@@ -17,6 +19,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <fstream>
+#include <iterator>
+#include <memory>
 #include <limits>
 #include <stdexcept>
 
@@ -293,6 +299,36 @@ bool valid_uuid(std::string_view value) {
 
 TlsContext load_credentials(const transport::TlsFiles &files) {
   return make_context(files);
+}
+
+std::string credential_fingerprint(const transport::TlsFiles &files) {
+  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> digest(EVP_MD_CTX_new(),
+                                                                  EVP_MD_CTX_free);
+  if (!digest || EVP_DigestInit_ex(digest.get(), EVP_sha256(), nullptr) != 1) {
+    throw transport::Error("credential_fingerprint");
+  }
+  for (const auto *path : {&files.certificate, &files.private_key, &files.certificate_authority}) {
+    std::ifstream input(*path, std::ios::binary);
+    if (!input) {
+      throw transport::Error("credentials_unreadable");
+    }
+    const std::string contents((std::istreambuf_iterator<char>(input)),
+                               std::istreambuf_iterator<char>());
+    if (input.bad()) {
+      throw transport::Error("credentials_unreadable");
+    }
+    const auto size = static_cast<std::uint64_t>(contents.size());
+    if (EVP_DigestUpdate(digest.get(), &size, sizeof(size)) != 1 ||
+        EVP_DigestUpdate(digest.get(), contents.data(), contents.size()) != 1) {
+      throw transport::Error("credential_fingerprint");
+    }
+  }
+  std::array<unsigned char, EVP_MAX_MD_SIZE> value{};
+  unsigned int length = 0;
+  if (EVP_DigestFinal_ex(digest.get(), value.data(), &length) != 1) {
+    throw transport::Error("credential_fingerprint");
+  }
+  return std::string(reinterpret_cast<const char *>(value.data()), length);
 }
 
 std::string source_address(const corosio::tcp_socket &socket) {

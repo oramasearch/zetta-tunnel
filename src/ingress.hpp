@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #pragma once
 
 #include "tunnel.hpp"
@@ -38,6 +40,10 @@ struct Host {
   std::string name;
   std::string certificate;
   std::string key;
+  // When set, the host requires a client certificate rooted in this CA (an origin client
+  // certificate, such as the edge's authenticated origin pull), and refuses the handshake without
+  // one (zetta-tunnel#34).
+  std::string client_ca;
   std::vector<Route> routes;
   TlsContext context;
 };
@@ -104,6 +110,8 @@ public:
   capy::task<> write(std::string_view data);
   std::string sni() const;
   bool http2() const;
+  // True when the peer presented a client certificate that verified against its host's client CA.
+  bool client_verified() const;
 
 private:
   corosio::tcp_socket &socket_;
