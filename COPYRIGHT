@@ -7,5 +7,5 @@ added and kept current by tools/spdx-headers.py.
 Components written by others keep their own licenses. They are listed, with
 their license texts, in THIRD_PARTY_LICENSES.
 
-Contributions are accepted under the Developer Certificate of Origin; see
-CONTRIBUTING.md.
+Contributions are accepted under the Contributor License Agreement in CLA.md,
+which assigns their copyright to OramaSearch, Inc.; see CONTRIBUTING.md.

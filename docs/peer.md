@@ -126,7 +126,9 @@ handling. **A rotated or withdrawn credential ends the sessions authorized under
 (zetta-tunnel#37): the gateway fingerprints the certificate, key and CA files' contents through any
 symlink; a changed fingerprint closes every session (`credentials_changed`) before the new context
 is used, and a missing or invalid credential closes every session (`credentials_unavailable`), fails
-readiness and refuses new traffic until a valid refresh. Source quotas use the normalized socket IP without its port;
+readiness and refuses new traffic until a valid refresh. The peer writes its audit record at setup, so
+these reasons are recorded only for sessions still in setup; an established session is closed
+without a further record (#55). Source quotas use the normalized socket IP without its port;
 a proxy that hides client addresses shares one quota, so configure limits for that topology. SIGINT
 and SIGTERM close all listeners and sessions. Metrics are not implemented; decision records are
 the current observability interface.
