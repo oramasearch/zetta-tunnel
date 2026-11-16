@@ -34,7 +34,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 project(zetta-tunnel
-  VERSION 0.2.0
+  VERSION 0.3.0
   DESCRIPTION "Orama's own tunnels, mesh and ingress network layer"
   LANGUAGES CXX
 )
