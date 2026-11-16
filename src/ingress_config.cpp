@@ -83,7 +83,7 @@ Configuration read_configuration(const std::filesystem::path &path) {
   const auto base = path.parent_path();
   std::set<std::string> ids;
   for (const auto &value : document["hosts"]) {
-    fields(value, {"name", "certificate", "key", "routes"});
+    fields(value, {"name", "certificate", "key", "routes"}, {"client_ca"});
     Host host;
     host.name = value["name"].get<std::string>();
     require(egress::normalize_dns_name(host.name) == host.name);
@@ -91,6 +91,10 @@ Configuration read_configuration(const std::filesystem::path &path) {
     host.key = file_path(base, value["key"]);
     fingerprint(contents(host.certificate));
     fingerprint(contents(host.key));
+    if (value.contains("client_ca")) {
+      host.client_ca = file_path(base, value["client_ca"]);
+      fingerprint(contents(host.client_ca));
+    }
     require(value["routes"].is_array() && !value["routes"].empty() &&
             value["routes"].size() <= 256);
     std::set<std::pair<std::string, bool>> paths;

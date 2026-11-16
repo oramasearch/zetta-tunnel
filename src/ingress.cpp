@@ -123,6 +123,8 @@ struct Session {
   std::shared_ptr<const Configuration> configuration;
   std::string sni;
   std::string source;
+  // The caller presented a verified client certificate (an origin host's edge).
+  bool client_verified = false;
   std::unique_ptr<Admission::Ticket> admission;
   bool established = false;
   bool reading_headers = false;
@@ -261,10 +263,15 @@ private:
 
   Headers upstream_headers(const Session &session, const Message &request) {
     auto headers = end_to_end(request.headers);
-    std::erase_if(headers, [](const auto &item) {
+    // Edge attribution headers (CF-Connecting-IP, CF-Ray and the rest, True-Client-IP) reach the
+    // backend only from a caller that proved it is the edge with a verified client certificate;
+    // anyone else could set them (zetta-tunnel#34).
+    const bool edge = session.client_verified;
+    std::erase_if(headers, [edge](const auto &item) {
       return item.first == "host" || item.first == "forwarded" ||
              item.first.starts_with("x-forwarded-") || item.first == "x-real-ip" ||
-             item.first == "expect" || item.first == "content-length";
+             item.first == "expect" || item.first == "content-length" ||
+             (!edge && (item.first.starts_with("cf-") || item.first == "true-client-ip"));
     });
     headers.emplace_back("host", field(request.headers, "host").empty()
                                      ? request.host
@@ -507,6 +514,7 @@ private:
         throw Error(503);
       }
       session->sni = wire.sni();
+      session->client_verified = wire.client_verified();
       session->established = true;
       session->deadline = Clock::now() + std::chrono::seconds(options_.idle_timeout);
       if (wire.http2()) {
