@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 """Load TLS credentials once and reuse them after the source files disappear."""
 
 from pathlib import Path

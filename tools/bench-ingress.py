@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+
 """Benchmark a local ingress and backend; never sends traffic to a cluster."""
 
 import argparse

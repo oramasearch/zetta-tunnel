@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 """Exercise two peer gateways with real mutual TLS and overlapping service networks."""
 
 import calendar

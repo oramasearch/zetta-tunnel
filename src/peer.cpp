@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include "peer.hpp"
 #include "admission.hpp"
 

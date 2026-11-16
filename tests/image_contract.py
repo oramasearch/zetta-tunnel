@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 """Portable checks for the release image contract and role entrypoints."""
 
 from pathlib import Path

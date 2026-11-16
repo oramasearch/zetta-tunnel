@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 """Privileged Linux namespace proof for mesh capture and fail-closed behavior."""
 
 import http.client

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 """Exercise the actual role processes with independent TLS clients and TCP targets."""
 
 import concurrent.futures

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include "egress_address.hpp"
 
 #include <iostream>

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 """Exercise egress authorization with real TCP and TLS clients."""
 
 import contextlib

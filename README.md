@@ -10,7 +10,7 @@
 The Orama operator manages each of these as an abstract kind with a provider behind it, the way a
 `KubernetesCluster` is backed by an `AksCluster`. zetta-tunnel is the provider Orama owns: it runs
 inside our clusters, inside a customer's own cluster, and with no internet access at all, and it is
-licensed so that Orama can sell it. Third-party tunnel services can sit behind the same kind as
+open source under the MIT License. Third-party tunnel services can sit behind the same kind as
 other providers, where their terms allow.
 
 ## Status
@@ -49,7 +49,7 @@ See
 [`docs/egress.md`](docs/egress.md), [`docs/peer.md`](docs/peer.md),
 [`docs/ingress.md`](docs/ingress.md), [`docs/mesh.md`](docs/mesh.md) and
 [`docs/image.md`](docs/image.md).
-Private repository; proprietary to Orama.
+MIT License; see [License](#license).
 
 ## Why it exists
 
@@ -134,3 +134,9 @@ library; the public header is [`include/zetta_tunnel/transport.hpp`](include/zet
   provider behind the tunnel kind.
 - [`oramasearch/lake`](https://github.com/oramasearch/lake) grants and shows tunnels.
 - Its image is `oramasearch/zetta-tunnel` on Docker Hub.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Third-party components and their licenses are in
+[THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). Contributions are welcome under the
+[Contributor License Agreement](CLA.md); see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -1,0 +1,237 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "zetta-tunnel-11f5a5b071fd",
+  "documentNamespace": "https://github.com/oramasearch/zetta-tunnel/sbom/11f5a5b071fd88647181a3c0a982a9557b4f415a",
+  "creationInfo": {
+    "created": "2026-11-16T01:29:13Z",
+    "creators": [
+      "Organization: OramaSearch, Inc.",
+      "Tool: tools/sbom.py",
+      "Tool: syft"
+    ],
+    "licenseListVersion": "3.29",
+    "comment": "Made from source commit 11f5a5b071fd88647181a3c0a982a9557b4f415a by tools/sbom.py."
+  },
+  "documentDescribes": [
+    "SPDXRef-DocumentRoot"
+  ],
+  "packages": [
+    {
+      "name": "alpine",
+      "SPDXID": "SPDXRef-Image-alpine-5c241c60bf6cf94c",
+      "versionInfo": "3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "primaryPackagePurpose": "CONTAINER",
+      "comment": "Container base image (alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8), FROM in Dockerfile. Its own packages are in the image SBOM of each release image.",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:docker/alpine@sha256%3A5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8?tag=3.22"
+        }
+      ]
+    },
+    {
+      "name": "Boost.Capy",
+      "SPDXID": "SPDXRef-Component-Boost.Capy-3bce0e447cd0e6a7",
+      "versionInfo": "ce1c7d710c4baaeeddb57fa101707c610f6eb975",
+      "downloadLocation": "git+https://github.com/cppalliance/capy.git@ce1c7d710c4baaeeddb57fa101707c610f6eb975",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSL-1.0",
+      "comment": "How it is used: submodule, linked statically. Listed in THIRD_PARTY_LICENSES.",
+      "homepage": "https://github.com/cppalliance/capy",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:github/cppalliance/capy@ce1c7d710c4baaeeddb57fa101707c610f6eb975"
+        }
+      ]
+    },
+    {
+      "name": "Boost.Corosio",
+      "SPDXID": "SPDXRef-Component-Boost.Corosio-924e0313efaaca43",
+      "versionInfo": "9f8e865a7b5728a4093e9345456bc077194dbeff",
+      "downloadLocation": "git+https://github.com/oramasearch/corosio.git@9f8e865a7b5728a4093e9345456bc077194dbeff",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSL-1.0",
+      "comment": "Orama's fork. How it is used: submodule, linked statically. Listed in THIRD_PARTY_LICENSES.",
+      "homepage": "https://github.com/oramasearch/corosio",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:github/oramasearch/corosio@9f8e865a7b5728a4093e9345456bc077194dbeff"
+        }
+      ]
+    },
+    {
+      "name": "LLVM libc++, libc++abi, libunwind, compiler-rt",
+      "SPDXID": "SPDXRef-Component-LLVM-libc-libc-abi-libunwind-compiler-rt-89591280e072b05c",
+      "versionInfo": "20 (Alpine clang20)",
+      "downloadLocation": "https://github.com/llvm/llvm-project",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Apache-2.0 WITH LLVM-exception",
+      "comment": "How it is used: linked statically in the image only. Listed in THIRD_PARTY_LICENSES.",
+      "homepage": "https://github.com/llvm/llvm-project",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:github/llvm/llvm-project@20 (Alpine clang20)"
+        }
+      ]
+    },
+    {
+      "name": "musl libc",
+      "SPDXID": "SPDXRef-Component-musl-libc-94575b3548a14e72",
+      "versionInfo": "Alpine 3.22",
+      "downloadLocation": "https://git.musl-libc.org/cgit/musl/plain/COPYRIGHT?h=v1.2.5",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "comment": "How it is used: linked statically in the image only. Listed in THIRD_PARTY_LICENSES.",
+      "homepage": "https://git.musl-libc.org/cgit/musl/plain/COPYRIGHT?h=v1.2.5"
+    },
+    {
+      "name": "nghttp2",
+      "SPDXID": "SPDXRef-Component-nghttp2-01c681b03c83c23f",
+      "versionInfo": "1.61 or newer (system or Alpine)",
+      "downloadLocation": "https://github.com/nghttp2/nghttp2",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "comment": "How it is used: linked; statically in the portable build and the image. Listed in THIRD_PARTY_LICENSES.",
+      "homepage": "https://github.com/nghttp2/nghttp2",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:github/nghttp2/nghttp2@1.61 or newer (system or Alpine)"
+        }
+      ]
+    },
+    {
+      "name": "nlohmann/json",
+      "SPDXID": "SPDXRef-Component-nlohmann-json-b7b21913e9ccc74a",
+      "versionInfo": "3.12 or newer (system)",
+      "downloadLocation": "https://github.com/nlohmann/json",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "comment": "How it is used: header-only, from the system. Listed in THIRD_PARTY_LICENSES.",
+      "homepage": "https://github.com/nlohmann/json",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:github/nlohmann/json@3.12 or newer (system)"
+        }
+      ]
+    },
+    {
+      "name": "OpenSSL",
+      "SPDXID": "SPDXRef-Component-OpenSSL-ec8e722611560a1d",
+      "versionInfo": "3.x (system or Alpine)",
+      "downloadLocation": "https://github.com/openssl/openssl",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Apache-2.0",
+      "comment": "How it is used: linked; statically in the portable build and the image. Listed in THIRD_PARTY_LICENSES.",
+      "homepage": "https://github.com/openssl/openssl",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:github/openssl/openssl@3.x (system or Alpine)"
+        }
+      ]
+    },
+    {
+      "name": "zetta-tunnel",
+      "SPDXID": "SPDXRef-DocumentRoot",
+      "versionInfo": "11f5a5b071fd",
+      "downloadLocation": "git+https://github.com/oramasearch/zetta-tunnel.git",
+      "homepage": "https://github.com/oramasearch/zetta-tunnel",
+      "filesAnalyzed": false,
+      "supplier": "Organization: OramaSearch, Inc.",
+      "originator": "Organization: OramaSearch, Inc.",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "Copyright (c) 2026 OramaSearch, Inc.",
+      "primaryPackagePurpose": "SOURCE",
+      "comment": "The source tree of zetta-tunnel. Packages found by syft in the files git tracks, plus the C and C++ components of THIRD_PARTY_LICENSES and the git submodules."
+    }
+  ],
+  "relationships": [
+    {
+      "relatedSpdxElement": "SPDXRef-Component-Boost.Capy-3bce0e447cd0e6a7",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-DocumentRoot"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Component-Boost.Corosio-924e0313efaaca43",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-DocumentRoot"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Component-LLVM-libc-libc-abi-libunwind-compiler-rt-89591280e072b05c",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-DocumentRoot"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Component-OpenSSL-ec8e722611560a1d",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-DocumentRoot"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Component-musl-libc-94575b3548a14e72",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-DocumentRoot"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Component-nghttp2-01c681b03c83c23f",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-DocumentRoot"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Component-nlohmann-json-b7b21913e9ccc74a",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-DocumentRoot"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-DocumentRoot",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Image-alpine-5c241c60bf6cf94c",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-DocumentRoot"
+    }
+  ]
+}

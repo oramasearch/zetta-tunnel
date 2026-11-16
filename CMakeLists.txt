@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 cmake_minimum_required(VERSION 3.28)
 
 # zetta-tunnel is C++26, like zetta. When no compiler is chosen, pick one that builds C++26 before
