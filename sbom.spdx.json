@@ -2,17 +2,17 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "name": "zetta-tunnel-a23453dfe1bb",
-  "documentNamespace": "https://github.com/oramasearch/zetta-tunnel/sbom/a23453dfe1bb46659460be36c29740a325d173d1",
+  "name": "zetta-tunnel-8380f98194a6",
+  "documentNamespace": "https://github.com/oramasearch/zetta-tunnel/sbom/8380f98194a6554e5a028632363e393635a5fc52",
   "creationInfo": {
-    "created": "2026-11-15T17:25:30Z",
+    "created": "2026-11-16T01:16:27Z",
     "creators": [
       "Organization: OramaSearch, Inc.",
       "Tool: tools/sbom.py",
       "Tool: syft"
     ],
     "licenseListVersion": "3.29",
-    "comment": "Made from source commit a23453dfe1bb46659460be36c29740a325d173d1 by tools/sbom.py."
+    "comment": "Made from source commit 8380f98194a6554e5a028632363e393635a5fc52 by tools/sbom.py."
   },
   "documentDescribes": [
     "SPDXRef-DocumentRoot"
@@ -174,7 +174,7 @@
     {
       "name": "zetta-tunnel",
       "SPDXID": "SPDXRef-DocumentRoot",
-      "versionInfo": "a23453dfe1bb",
+      "versionInfo": "8380f98194a6",
       "downloadLocation": "git+https://github.com/oramasearch/zetta-tunnel.git",
       "homepage": "https://github.com/oramasearch/zetta-tunnel",
       "filesAnalyzed": false,
