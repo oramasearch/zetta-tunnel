@@ -36,7 +36,7 @@ namespace descriptor after checking the projected pod UID and namespace inode; t
 contract requires the paired operator projector update.
 `zetta_tunnel_transport` provides mutual TLS 1.3 client/server connections, pinned peer identities,
 binary frames and clean TLS shutdown. Workspace Zetta audit delivery is deferred to zetta#1281.
-**Released as [v0.3.0](docs/releases/v0.3.0.md)** (2026-11-15): a rotated or withdrawn credential
+**Released as [v0.3.1](docs/releases/v0.3.1.md)** (2026-11-16), a patch of [v0.3.0](docs/releases/v0.3.0.md) (2026-11-15): a rotated or withdrawn credential
 ends its sessions, an ingress host can require the edge's client certificate, and the MIT licence.
 [v0.2.0](docs/releases/v0.2.0.md) (2026-11-02) brought four security fixes and the peer
 setup-deadline fix; its grants file and mesh projection changes need the operator to follow.
