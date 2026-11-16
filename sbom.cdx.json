@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:ca43baf9-aea8-5e34-af74-1afa1c531f15",
+  "serialNumber": "urn:uuid:62643351-d2af-5ede-9ac6-f1e70bf5a2ec",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-16T02:16:11Z",
+    "timestamp": "2026-11-16T02:32:33Z",
     "tools": {
       "components": [
         {
@@ -171,7 +171,7 @@
       "bom-ref": "DocumentRoot",
       "type": "library",
       "name": "zetta-tunnel",
-      "version": "f1765348f0ca",
+      "version": "0814f9104711",
       "licenses": [
         {
           "license": {
