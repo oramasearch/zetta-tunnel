@@ -4,5 +4,5 @@
 	branch = develop
 [submodule "modules/corosio"]
 	path = modules/corosio
-	url = git@github.com:oramasearch/corosio.git
+	url = https://github.com/oramasearch/corosio.git
 	branch = orama-main
