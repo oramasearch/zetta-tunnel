@@ -53,7 +53,7 @@ destination. HTTP CONNECT, SOCKS or a forged header cannot redirect a connection
 
 ## The roles
 
-One statically linked binary in one private image (`oramasearch/zetta-tunnel`, [`image.md`](image.md)).
+One statically linked binary in one image (`oramasearch/zetta-tunnel`, [`image.md`](image.md)).
 The operator decides which role a process runs.
 
 | Role | Operator kind | Runs | Carries | Contract |
@@ -80,8 +80,7 @@ developer app -> client (loopback) -> mTLS -> relay (cluster, :443) -> mTLS -> e
    client trust bundle is the union of the live grants' customer CAs, so each grant also names the
    SHA-256 fingerprints of its own customer's CAs.
 4. The relay accepts the certificate only if its verified chain runs through one of the CAs its
-   grant names: one customer's CA never authorizes another customer's grant (LSR-074,
-   [#28](https://github.com/oramasearch/zetta-tunnel/issues/28)). It maps the grant to its endpoint. The endpoint forwards to its one target,
+   grant names: one customer's CA never authorizes another customer's grant. It maps the grant to its endpoint. The endpoint forwards to its one target,
    and the operator's `Connection` allows only that path.
 5. Revoking or expiring a grant removes it from the projection. The relay closes that grant's live
    sessions.

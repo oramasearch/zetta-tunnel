@@ -76,7 +76,7 @@ UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=abort_on_error=1 \
 
 ## Recorded native verification
 
-On Steves-MacBook-Pro.local (arm64, macOS 14.6.1), the static and shared builds each passed
+On a MacBook Pro (arm64, macOS 14.6.1), the static and shared builds each passed
 all 85 tests with no failures or skips. Both included the inherited PostgreSQL integration test
 against a fresh local database. The sanitizer build passed all 26 ingress tests with no failures.
 The disposable database was removed after verification. Build parallelism was limited to six;

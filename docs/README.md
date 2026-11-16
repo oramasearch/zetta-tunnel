@@ -23,7 +23,7 @@
   acceptance command.
 - [Mesh netlink and diagnostics](mesh/netlink.md): transaction wire fixtures, acknowledgement
   validation and safe startup failure details.
-- [Image and releases](image.md): the private amd64 image, cluster BuildKit workflow, Linux image
+- [Image and releases](image.md): the amd64 image, cluster BuildKit workflow, Linux image
   proof and digest-based release contract.
 - [Releases](releases/README.md): release-page index and conventions.
 - [Transport](transport.md): the mutual TLS 1.3 client/server interface, framed stream and security

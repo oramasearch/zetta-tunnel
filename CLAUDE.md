@@ -1,34 +1,40 @@
 # zetta-tunnel
 
 Orama's own network layer, in C++26: tunnels, the mesh and the ingress. Read [`README.md`](README.md)
-first: it says what this is, why it exists, and which parts are built. The design in
-[orama-operator#437](https://github.com/oramasearch/orama-operator/issues/437) is decided; the
-mutual TLS transport, developer tunnel roles, DNS-name egress, peer and ingress gateways, and the
-fail-closed mesh node agent are implemented. The private amd64 image and release workflow are
-implemented; the coordinator published `oramasearch/zetta-tunnel:dev-e522b9a`. Its Linux mesh proof
-failed at capture readiness; netlink corrections and startup diagnostics await the coordinator's
-rerun. The issue #3
-contract is in
-[`docs/tunnel.md`](docs/tunnel.md), issue #4 is in
-[`docs/egress.md`](docs/egress.md), issue #5 is in [`docs/peer.md`](docs/peer.md), and issue #6
-is in [`docs/ingress.md`](docs/ingress.md). Issue #7 is in [`docs/mesh.md`](docs/mesh.md), and issue
-#8 is in [`docs/image.md`](docs/image.md). Ingress
-deployment, the ingress-nginx comparison and the privileged Linux mesh proof are pending
-coordinator verification. JSON-lines audit is built; the Zetta writer is deferred to zetta#1281.
+first: it says what this is, why it exists, and which parts are built. The contracts are documented
+per component: the tunnel in [`docs/tunnel.md`](docs/tunnel.md), egress in
+[`docs/egress.md`](docs/egress.md), peers in [`docs/peer.md`](docs/peer.md), ingress in
+[`docs/ingress.md`](docs/ingress.md), the mesh node agent in [`docs/mesh.md`](docs/mesh.md) and the
+image in [`docs/image.md`](docs/image.md). The architecture is [`docs/architecture.md`](docs/architecture.md).
 
-The organisation's rules are in the umbrella bridge's `CLAUDE.md`
-(https://github.com/oramasearch/orama-bridge). The ones that apply here every day:
+## Build and test
 
-- **Branches:** work branches from `origin/dev`, and every pull request targets `dev`
-  (`gh pr create --base dev`). `main` moves only on a release. Merge with merge commits, never
-  squash.
-- **Private:** this repository and its Docker Hub repository `oramasearch/zetta-tunnel` are
-  private. Never make either public.
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build -j 6
+ctest --test-dir build --output-on-failure
+```
+
+State in the pull request which tests you ran and their result.
+
+## Rules
+
+- **Branches:** branch from `dev`, and open every pull request against `dev`. `main` holds the last
+  release and moves only when a release is cut. Pull requests are merged with merge commits, never
+  squashed.
+- **Documentation is part of every change:** the relevant page under `docs/`, and any status line in
+  `README.md` or this file, change in the same commit as the code.
 - **Licences:** every dependency is permissively licensed (Apache-2.0, MIT, BSD, ISC, Boost) and
-  recorded where it is added. No GPL, LGPL, AGPL, SSPL, BUSL or source-available code is linked or
-  shipped.
-- **No CI.** Proof is the local build and `ctest`, stated in the pull request.
-- **No AI attribution** in commits, pull requests or release notes.
-- **Never write the word "seam"**; name the mechanism.
+  recorded in [`docs/licences.md`](docs/licences.md) when it is added. No GPL, LGPL, AGPL, SSPL, BUSL
+  or source-available code is linked or shipped.
+- **No AI attribution** in commits, pull requests or release notes: no `Co-Authored-By` trailers
+  for an assistant, no "Generated with" lines.
+- **Never write the word "seam"**; name the mechanism (interface, extension point, injected
+  dependency, boundary).
+- **No time or size estimates**; report what was done.
 - **The version** is written once, in `project(VERSION)` in `CMakeLists.txt`; `--version` and its
   test read it from there.
+- A segfault, bus error or abort in a test is a memory bug, not a flake: rebuild with
+  AddressSanitizer (`-fsanitize=address -fno-omit-frame-pointer`) in its own build directory and run
+  the suite under it.
+- Report vulnerabilities privately, as [`SECURITY.md`](SECURITY.md) describes.

@@ -29,7 +29,7 @@ The integration cases prove concurrent binary forwarding and matching audit byte
 removal cutting an idle live session and refusing a new one; expiry cutting a live session;
 expired, untrusted, missing-URI, ambiguous-URI, unknown-grant and overlong certificates being
 refused; a certificate from another customer's CA, trusted by the relay and naming the grant and
-its expiry, being refused with `grant_issuer` (`tunnel_other_customer_ca`, LSR-074); certificate expiry bounded by grant expiry; wrong relay/endpoint DNS identities being
+its expiry, being refused with `grant_issuer` (`tunnel_other_customer_ca`); certificate expiry bounded by grant expiry; wrong relay/endpoint DNS identities being
 refused; destination-shaped payloads reaching only the configured target; invalid reload clearing
 authorization and readiness with later recovery; SIGHUP forcing a same-mtime reload; and capacity
 limits while health probes remain responsive. Further cases cover missing certificates, TLS 1.2
