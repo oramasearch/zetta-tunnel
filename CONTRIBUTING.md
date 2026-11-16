@@ -3,7 +3,8 @@
 Thank you for helping. zetta-tunnel is the network layer of Orama Lake: tunnels, the mesh and the
 ingress, in C++26. [`README.md`](README.md) says what it is and which parts are built;
 [`docs/`](docs/README.md) has each role's contract. This document says how to build and test it,
-how a change gets in, and the one thing every commit needs: a sign-off.
+how a change gets in, and the one thing every contributor does first: sign the Contributor License
+Agreement.
 
 ## Before you start
 
@@ -39,7 +40,7 @@ which tests you ran and on which platform.
    the role's page under `docs/` and any status line in `README.md` in the same pull request.
 3. Write commit messages in the [Conventional Commits](https://www.conventionalcommits.org/) form,
    for example `fix(api): reject an empty name`.
-4. Sign off every commit (next section).
+4. Sign the Contributor License Agreement before your first pull request is merged (next section).
 5. Open the pull request against `dev`. Start its description with what changes, why, and how.
 
 Two rules hold for every change:
@@ -50,74 +51,21 @@ Two rules hold for every change:
 - The version is written once, in `project(VERSION)` in `CMakeLists.txt`; `--version` and its test
   read it from there.
 
-A maintainer reviews it. Pull requests are merged with a merge commit, so every commit you sign
+A maintainer reviews it. Pull requests are merged with a merge commit, so every commit you make
 stays in the history.
 
-## Sign your commits (Developer Certificate of Origin)
+## Contributor License Agreement
 
-zetta-tunnel takes contributions under the [Developer Certificate of Origin](https://developercertificate.org/)
-(DCO). There is no contributor license agreement to sign. Your contribution is licensed under the
-project's license, the MIT License (see [LICENSE](LICENSE)).
+zetta-tunnel is owned by OramaSearch, Inc. Every contributor signs the
+[Contributor License Agreement](CLA.md) (CLA) once, before their first pull request is merged. Under
+it you assign the copyright in your contributions to OramaSearch, Inc., you keep a licence to use
+your own contributions for any purpose, and you grant a patent licence for them. The project is
+published under the MIT License (see [LICENSE](LICENSE)).
 
-By adding a `Signed-off-by` line to a commit, you certify the DCO below for that commit. Git adds
-the line for you with `-s`:
-
-```sh
-git commit -s -m "fix(api): reject an empty name"
-```
-
-which records:
-
-```
-Signed-off-by: Your Name <you@example.com>
-```
-
-The name and address are the ones in your `git config user.name` and `user.email`. Use your real
-name; anonymous contributions cannot be accepted. To sign commits you have already made:
-
-```sh
-git commit --amend -s --no-edit        # the last commit
-git rebase --signoff dev               # every commit on your branch
-```
-
-A pull request with an unsigned commit is not merged until it is signed.
-
-```
-Developer Certificate of Origin
-Version 1.1
-
-Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
-
-Everyone is permitted to copy and distribute verbatim copies of this
-license document, but changing it is not allowed.
-
-
-Developer's Certificate of Origin 1.1
-
-By making a contribution to this project, I certify that:
-
-(a) The contribution was created in whole or in part by me and I
-    have the right to submit it under the open source license
-    indicated in the file; or
-
-(b) The contribution is based upon previous work that, to the best
-    of my knowledge, is covered under an appropriate open source
-    license and I have the right under that license to submit that
-    work with modifications, whether created in whole or in part
-    by me, under the same open source license (unless I am
-    permitted to submit under a different license), as indicated
-    in the file; or
-
-(c) The contribution was provided directly to me by some other
-    person who certified (a), (b) or (c) and I have not modified
-    it.
-
-(d) I understand and agree that this project and the contribution
-    are public and that a record of the contribution (including all
-    personal information I submit with it, including my sign-off) is
-    maintained indefinitely and may be redistributed consistent with
-    this project or the open source license(s) involved.
-```
+When you open your first pull request, a bot comments on it with a link to the agreement. Sign
+there with your GitHub account; it covers all your later contributions to projects of OramaSearch,
+Inc. If you contribute as part of your job, your employer signs too: write to
+**opensource@orama.com** for the entity agreement.
 
 ## License headers
 
